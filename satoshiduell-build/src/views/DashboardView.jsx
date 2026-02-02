@@ -200,23 +200,29 @@ const DashboardView = ({
            
            {/* 7. LEADERBOARD (Klickbar gemacht) */}
            <button 
-              onClick={onOpenLeaderboard} // <--- HIER VERKNÜPFT
-              className="bg-[#161616] hover:bg-[#1f1f1f] border border-white/5 rounded-2xl p-4 h-40 flex flex-col items-center justify-center transition-all relative overflow-hidden text-left"
+              onClick={onOpenLeaderboard}
+              className="bg-[#161616] hover:bg-[#1f1f1f] border border-white/5 rounded-2xl p-4 h-40 flex flex-col items-center justify-center transition-all relative overflow-hidden group"
            >
-              {/* Header */}
-              <div className="flex items-center gap-2 mb-3 z-10 w-full justify-start">
-                  <TrophyIcon size={14} className="text-yellow-500" />
-                  <span className="text-[10px] font-black uppercase text-yellow-500 tracking-widest">{t('tile_leaderboard')}</span>
+              {/* Zentrales Icon: Siegertreppchen / Podium */}
+              <div className="mb-3 text-yellow-500 group-hover:scale-110 transition-transform duration-300">
+                  <svg 
+                    width="48" 
+                    height="48" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="1.5" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"
+                  >
+                    <path d="M7 10v10M17 10v10M12 6v14M2 20h20" />
+                  </svg>
               </div>
               
-              {/* Vorschau (Dummy Data, dient als Teaser) */}
-              <div className="flex flex-col gap-2 overflow-hidden w-full z-10 opacity-70">
-                <div className="flex justify-between text-[10px] font-bold text-white w-full"><span className="text-orange-500">1.</span> DRAGSUGG <span className="text-neutral-500">...</span></div>
-                <div className="flex justify-between text-[10px] font-bold text-white w-full"><span className="text-white">2.</span> LBUG <span className="text-neutral-500">...</span></div>
-              </div>
-              
-              {/* Deko im Hintergrund */}
-              <TrophyIcon size={80} className="absolute -bottom-6 -right-6 text-yellow-500/5 rotate-12" />
+              {/* Titel */}
+              <span className="text-[10px] font-black uppercase text-yellow-500 tracking-[0.2em]">
+                {t('tile_leaderboard')}
+              </span>
            </button>
 
            {/* 8. BADGES / ERFOLGE */}
