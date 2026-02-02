@@ -1,182 +1,145 @@
-// views/GameView.jsx
+import React, { useState, useEffect, useRef } from 'react';
+import Background from '../components/ui/Background';
+import { Timer } from 'lucide-react';
+import { useTranslation } from '../hooks/useTranslation';
+import { useAuth } from '../hooks/useAuth';
 
-import React, { useEffect } from 'react';
-import { useGame } from '../hooks/useGame';
-import { useDuels } from '../hooks/useDuels';
-import QuizQuestion from '../components/game/QuizQuestion';
-import Background from '../components/Background';
-import Button from '../components/Button';
-import { Loader2, ArrowLeft } from 'lucide-react';
-import confetti from 'canvas-confetti';
+const GameView = ({ gameData, onGameEnd }) => {
+  const { t } = useTranslation();
+  const { user } = useAuth();
 
-/**
- * Game View - Quiz Gameplay Screen
- * 
- * Diese View verwaltet:
- * - Quiz Gameplay
- * - Timer
- * - Score Tracking
- * - Speichern des Ergebnisses
- */
-const GameView = ({
-  questions,
-  duelData, // { role: 'creator' | 'challenger', duelId?: number }
-  onGameFinish,
-  onCancel,
-  isMuted = false,
-  language = 'de',
-}) => {
-  const {
-    currentQuestion,
-    score,
-    timeLeft,
-    totalTime,
-    selectedAnswer,
-    isGameActive,
-    isGameFinished,
-    startGame,
-    handleAnswerSelect,
-    getCurrentQuestion,
-    getFinalScore,
-    progress,
-  } = useGame(questions, isMuted);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [score, setScore] = useState(0);
+  
+  // Timer State
+  const [startTime] = useState(Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef(null);
 
-  const { finishDuelAsChallenger, createNewDuel } = useDuels();
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  // Start game on mount
+  // --- TÜRSTEHER: Habe ich schon gespielt? ---
   useEffect(() => {
-    startGame();
+    const isCreator = user.name === gameData.creator;
+    const myScoreInDB = isCreator ? gameData.creator_score : gameData.challenger_score;
+
+    if (myScoreInDB !== null && myScoreInDB !== undefined) {
+      // Wenn schon gespielt, sofort raus hier
+      onGameEnd({ score: myScoreInDB, totalTime: 0 }); 
+    }
   }, []);
 
-  // Handle game finish
+  // --- TIMER LOGIK ---
   useEffect(() => {
-    if (isGameFinished) {
-      handleGameComplete();
+    // Aktualisiert die Anzeige alle 100ms
+    timerRef.current = setInterval(() => {
+      if (!hasSubmitted) {
+        setElapsed(Date.now() - startTime);
+      }
+    }, 100);
+
+    return () => clearInterval(timerRef.current);
+  }, [startTime, hasSubmitted]);
+
+
+  const question = gameData.questions[currentQuestionIndex];
+  const totalQuestions = gameData.questions.length;
+
+  const handleAnswerClick = (index) => {
+    if (selectedAnswer !== null || hasSubmitted) return; 
+    setSelectedAnswer(index);
+
+    const isCorrect = index === question.c;
+    if (isCorrect) {
+      setScore((prev) => prev + 1);
     }
-  }, [isGameFinished]);
 
-  /**
-   * Speichert das Spiel-Ergebnis
-   */
-  const handleGameComplete = async () => {
-    const finalScore = getFinalScore();
-
-    try {
-      if (duelData.role === 'challenger') {
-        // Speichere als Challenger
-        await finishDuelAsChallenger(
-          duelData.duelId,
-          score,
-          totalTime
-        );
-      } else if (duelData.role === 'creator') {
-        // Speichere als Creator
-        await createNewDuel({
-          creator_score: score,
-          creator_time: totalTime,
-          amount: duelData.amount,
-          target_player: duelData.targetPlayer,
-          questions: duelData.gameData,
-        });
+    // Kurze Pause vor der nächsten Frage
+    setTimeout(() => {
+      if (currentQuestionIndex < totalQuestions - 1) {
+        setCurrentQuestionIndex((prev) => prev + 1);
+        setSelectedAnswer(null);
+      } else {
+        finishGame(isCorrect ? score + 1 : score);
       }
-
-      // Konfetti bei gutem Score
-      if (score >= 4) {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-      }
-
-      // Navigation
-      if (onGameFinish) {
-        onGameFinish({
-          score,
-          totalTime,
-          finalScore,
-        });
-      }
-    } catch (error) {
-      console.error('Error saving game:', error);
-      alert('Fehler beim Speichern des Spiels: ' + error.message);
-    }
+    }, 1000);
   };
 
-  const currentQ = getCurrentQuestion();
+  const finishGame = (finalScore) => {
+    if (hasSubmitted) return;
+    setHasSubmitted(true);
+    clearInterval(timerRef.current);
+    
+    const endTime = Date.now();
+    const totalTime = endTime - startTime;
+    
+    onGameEnd({ score: finalScore, totalTime });
+  };
 
-  if (!currentQ) {
-    return (
-      <Background>
-        <div className="flex items-center justify-center h-screen">
-          <Loader2 className="animate-spin text-orange-500" size={48} />
-        </div>
-      </Background>
-    );
+  // Anti-Cheat Blank Screen
+  const isCreator = user.name === gameData.creator;
+  if ((isCreator ? gameData.creator_score : gameData.challenger_score) !== null) {
+      return <div className="h-screen bg-black" />;
   }
+
+  // Formatierung der Zeit (z.B. 12.5 s)
+  const formattedTime = (elapsed / 1000).toFixed(1);
 
   return (
     <Background>
-      <div className="min-h-screen flex flex-col items-center justify-center p-4">
-        {/* Header */}
-        <div className="w-full max-w-2xl mb-6">
-          <div className="flex justify-between items-center">
-            <Button
-              variant="ghost"
-              onClick={onCancel}
-              className="text-neutral-500 hover:text-white"
-            >
-              <ArrowLeft size={20} />
-              Abbrechen
-            </Button>
-
-            <div className="text-sm font-bold text-neutral-400 uppercase tracking-widest">
-              Score: {score} / 5
-            </div>
+      <div className="flex flex-col h-full w-full max-w-md mx-auto p-6">
+        
+        {/* Header: Progress & Live Timer */}
+        <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest">
+              {t('game_question')}
+            </span>
+            <span className="text-2xl font-black text-white italic">
+              {currentQuestionIndex + 1} <span className="text-neutral-600 text-lg">/ {totalQuestions}</span>
+            </span>
+          </div>
+          
+          {/* DER VISUELLE TIMER */}
+          <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-xl border border-white/10 shadow-lg">
+            <Timer className={`w-5 h-5 ${parseFloat(formattedTime) > 10 ? 'text-red-500 animate-pulse' : 'text-orange-500'}`} />
+            <span className="text-xl font-bold text-white font-mono min-w-[60px] text-right">
+              {formattedTime} <span className="text-sm text-neutral-500">s</span>
+            </span>
           </div>
         </div>
 
-        {/* Quiz Question */}
-        <QuizQuestion
-          question={currentQ}
-          questionNumber={currentQuestion + 1}
-          totalQuestions={5}
-          timeLeft={timeLeft}
-          selectedAnswer={selectedAnswer}
-          correctIndex={currentQ.correctIndex}
-          onAnswerSelect={handleAnswerSelect}
-          language={language}
-        />
+        {/* Question Card */}
+        <div className="flex-grow flex flex-col justify-center mb-8 animate-in slide-in-from-bottom-4 duration-500">
+           <h2 className="text-2xl font-bold text-white text-center leading-tight drop-shadow-lg mb-8 min-h-[80px] flex items-center justify-center">
+             {question.q}
+           </h2>
 
-        {/* Progress Indicator */}
-        <div className="w-full max-w-2xl mt-8">
-          <div className="flex gap-2 justify-center">
-            {[...Array(5)].map((_, i) => (
-              <div
-                key={i}
-                className={`h-2 w-12 rounded-full transition-all ${
-                  i < currentQuestion
-                    ? 'bg-green-500'
-                    : i === currentQuestion
-                    ? 'bg-orange-500'
-                    : 'bg-white/20'
-                }`}
-              />
-            ))}
-          </div>
+           <div className="grid grid-cols-1 gap-3">
+             {question.a.map((answer, index) => {
+               let btnClass = "bg-[#161616] border-white/5 hover:bg-[#222]";
+               
+               if (selectedAnswer !== null) {
+                 if (index === question.c) btnClass = "bg-green-500 text-black border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.4)] scale-[1.02]";
+                 else if (index === selectedAnswer) btnClass = "bg-red-500 text-white border-red-500 opacity-80";
+                 else btnClass = "bg-[#161616] border-white/5 opacity-30 blur-[1px]"; // Fokus auf die gewählte Antwort
+               }
+
+               return (
+                 <button
+                   key={index}
+                   onClick={() => handleAnswerClick(index)}
+                   disabled={selectedAnswer !== null}
+                   className={`p-4 rounded-xl border text-left font-bold transition-all duration-200 ${btnClass} ${selectedAnswer === null ? 'active:scale-95' : ''}`}
+                 >
+                   {answer}
+                 </button>
+               );
+             })}
+           </div>
         </div>
 
-        {/* Loading Overlay when finishing */}
-        {isGameFinished && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-            <div className="text-center">
-              <Loader2 className="animate-spin text-orange-500 mx-auto mb-4" size={48} />
-              <p className="text-white font-bold text-xl">
-                Speichere Ergebnis...
-              </p>
-            </div>
-          </div>
-        )}
       </div>
     </Background>
   );

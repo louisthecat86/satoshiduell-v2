@@ -1,27 +1,29 @@
-// components/ui/Button.jsx
 import React from 'react';
 
 const Button = ({ 
   children, 
   variant = 'primary', 
-  onClick, 
-  disabled = false,
-  className = '',
+  fullWidth = false, 
+  className = '', 
   ...props 
 }) => {
-  const baseStyles = 'px-6 py-3 rounded-xl font-bold uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  
+  const baseStyles = "px-4 py-3 rounded-xl font-bold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg active:scale-95";
   
   const variants = {
-    primary: 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg hover:shadow-xl active:scale-95',
-    secondary: 'bg-white/10 hover:bg-white/20 text-white border border-white/20',
-    ghost: 'bg-transparent hover:bg-white/10 text-white',
+    // HIER IST DIE ÄNDERUNG: Orange statt Weiß
+    primary: "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white border-none tracking-wider",
+    
+    secondary: "bg-white/10 text-white hover:bg-white/20 border border-white/10",
+    ghost: "bg-transparent text-neutral-400 hover:text-white border-transparent",
+    danger: "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20"
   };
 
+  const widthClass = fullWidth ? "w-full" : "";
+
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`${baseStyles} ${variants[variant]} ${className}`}
+    <button 
+      className={`${baseStyles} ${variants[variant] || variants.primary} ${widthClass} ${className}`}
       {...props}
     >
       {children}

@@ -1,166 +1,257 @@
-// App.jsx - Demo Version (ohne Supabase)
-import React, { useState } from 'react';
-import Background from './components/ui/Background';
-import Button from './components/ui/Button';
-import Card from './components/ui/Card';
-import { Zap, Trophy, Code } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 
-// Demo der modularen Struktur
-import { formatName, formatSats, formatTime } from './utils/formatters';
-import { validateUsername, validatePin } from './utils/validators';
-import { playSound } from './utils/sound';
+// --- VIEWS ---
+import LandingView from './views/LandingView';
+import LoginView from './views/LoginView';
+import DashboardView from './views/DashboardView';
+import CreateDuelView from './views/CreateDuelView';
+import PaymentView from './views/PaymentView';
+import GameView from './views/GameView';
+import LobbyView from './views/LobbyView';
+import ResultView from './views/ResultView';
+import ActiveGamesView from './views/ActiveGamesView';
+import HistoryView from './views/HistoryView';
+import BadgesView from './views/BadgesView';
+import LeaderboardView from './views/LeaderboardView'; // <--- 1. NEUER IMPORT
+
+// --- SERVICES & HOOKS ---
+import { createDuelEntry, joinDuel, activateDuel, submitGameResult } from './services/supabase';
+import { useAuth } from './hooks/useAuth';
 
 export default function App() {
-  const [view, setView] = useState('demo');
+  const { user, logout } = useAuth();
+  
+  // --- STATE ---
+  const [introAccepted, setIntroAccepted] = useState(() => {
+    return localStorage.getItem('satoshi_intro_accepted') === 'true';
+  });
 
-  if (view === 'demo') {
+  const [view, setView] = useState('dashboard');
+  const [currentGame, setCurrentGame] = useState(null); 
+  const [creationAmount, setCreationAmount] = useState(0); 
+  
+  const [isJoining, setIsJoining] = useState(false); 
+
+  // --- NAVIGATION (HISTORY API) ---
+  useEffect(() => {
+    const handlePopState = (event) => {
+      if (event.state && event.state.view) {
+        setView(event.state.view);
+        if (event.state.view === 'dashboard') {
+          setIsJoining(false);
+          setCurrentGame(null);
+        }
+      } else {
+        setView('dashboard');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (newView) => {
+    setView(newView);
+    window.history.pushState({ view: newView }, '', '');
+  };
+
+  const navigateReplace = (newView) => {
+    setView(newView);
+    window.history.replaceState({ view: newView }, '', '');
+  };
+
+  // --- HANDLERS ---
+  const handleIntroFinish = () => {
+    setIntroAccepted(true);
+    localStorage.setItem('satoshi_intro_accepted', 'true');
+  };
+
+  const handleStartCreateDuel = () => {
+    setIsJoining(false); 
+    navigate('create-duel');
+  };
+
+  const handleAmountConfirmed = async (amount) => {
+    setCreationAmount(amount);
+    const { data, error } = await createDuelEntry(user.name, amount);
+    
+    if (data) {
+      setCurrentGame(data); 
+      navigate('payment'); 
+    } else {
+      console.error("Fehler beim Erstellen:", error);
+      alert("Fehler beim Erstellen des Spiels.");
+    }
+  };
+
+  const handleOpenLobby = () => {
+    setIsJoining(true); 
+    navigate('lobby');
+  };
+
+  const handleJoinSelectedDuel = (game) => {
+    setCurrentGame(game);           
+    setCreationAmount(game.amount); 
+    navigate('payment');            
+  };
+
+  const handlePaymentDone = async () => {
+    if (isJoining && currentGame) {
+      console.log(`Joiner ${user.name} hat bezahlt.`);
+      const { data, error } = await joinDuel(currentGame.id, user.name);
+      if (data) {
+        setCurrentGame(data); 
+        navigate('game');     
+      } else {
+        console.error("Fehler beim Joinen:", error);
+        alert("Fehler beim Beitreten.");
+        navigate('dashboard');
+      }
+    } else {
+      console.log("Creator hat bezahlt.");
+      if (currentGame) {
+        await activateDuel(currentGame.id);
+        navigate('game');
+      }
+    }
+  };
+
+  const handleGameEnd = async (result) => {
+    console.log("Spieler fertig:", result);
+    if (!currentGame) return;
+
+    const isCreator = user.name === currentGame.creator;
+    const role = isCreator ? 'creator' : 'challenger';
+
+    await submitGameResult(currentGame.id, role, result.score, result.totalTime);
+    navigateReplace('result'); 
+  };
+
+
+  // --- RENDER LOGIK ---
+
+  if (!introAccepted) {
     return (
-      <Background>
-        <div className="min-h-screen flex flex-col items-center justify-center p-4 gap-8">
-          {/* Header */}
-          <div className="text-center">
-            <div className="text-6xl mb-4 animate-bounce">⚡</div>
-            <h1 className="text-5xl font-black text-white mb-2">
-              SATOSHI<span className="text-orange-500">DUELL</span>
-            </h1>
-            <p className="text-neutral-400 text-sm uppercase tracking-widest">
-              Refactored & Modular
-            </p>
-          </div>
-
-          {/* Demo Card */}
-          <Card className="max-w-2xl">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="bg-green-500/20 p-3 rounded-xl">
-                <Code className="text-green-400" size={32} />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-white mb-2">
-                  ✅ Refactoring Erfolgreich!
-                </h2>
-                <p className="text-neutral-400 text-sm">
-                  2248 Zeilen monolithischer Code → Modulare, wartbare Struktur
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <StatCard 
-                icon={<Trophy size={24} />}
-                label="Module"
-                value="25+"
-                color="text-orange-500"
-              />
-              <StatCard 
-                icon={<Zap size={24} />}
-                label="Hooks"
-                value="4"
-                color="text-yellow-500"
-              />
-              <StatCard 
-                label="Services"
-                value="3"
-                color="text-blue-500"
-              />
-              <StatCard 
-                label="Utils"
-                value="6"
-                color="text-green-500"
-              />
-            </div>
-
-            <div className="bg-white/5 rounded-xl p-4 mb-6">
-              <h3 className="text-white font-bold mb-3 text-sm uppercase tracking-wider">
-                🎯 Utils Demo
-              </h3>
-              <div className="space-y-2 text-sm font-mono">
-                <div className="flex justify-between">
-                  <span className="text-neutral-400">formatName("verylongusername"):</span>
-                  <span className="text-orange-400">{formatName("verylongusername")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-400">formatSats(1000000):</span>
-                  <span className="text-orange-400">{formatSats(1000000)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-400">formatTime(125.5):</span>
-                  <span className="text-orange-400">{formatTime(125.5)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-400">validateUsername("abc").valid:</span>
-                  <span className={validateUsername("abc").valid ? "text-green-400" : "text-red-400"}>
-                    {validateUsername("abc").valid ? 'true ✓' : 'false ✗'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-400">validatePin("1234").valid:</span>
-                  <span className={validatePin("1234").valid ? "text-green-400" : "text-red-400"}>
-                    {validatePin("1234").valid ? 'true ✓' : 'false ✗'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <Button 
-                variant="primary" 
-                onClick={() => playSound('correct', false)}
-                className="text-xs"
-              >
-                ✓ Sound
-              </Button>
-              <Button 
-                variant="secondary" 
-                onClick={() => playSound('wrong', false)}
-                className="text-xs"
-              >
-                ✗ Sound
-              </Button>
-              <Button 
-                variant="ghost" 
-                onClick={() => playSound('click', false)}
-                className="text-xs"
-              >
-                Click
-              </Button>
-            </div>
-          </Card>
-
-          {/* Info */}
-          <div className="text-center max-w-xl">
-            <h3 className="text-white font-bold mb-2">📦 Vollständige Struktur erstellt</h3>
-            <p className="text-neutral-400 text-sm mb-4">
-              Alle Module (Hooks, Services, Utils, Components) sind implementiert und einsatzbereit.
-              Für vollständige Funktionalität: Supabase & LNbits Credentials in .env eintragen.
-            </p>
-            <div className="flex gap-2 justify-center">
-              <div className="bg-green-500/20 px-3 py-1 rounded text-green-400 text-xs font-mono">
-                ✓ Hooks
-              </div>
-              <div className="bg-green-500/20 px-3 py-1 rounded text-green-400 text-xs font-mono">
-                ✓ Services
-              </div>
-              <div className="bg-green-500/20 px-3 py-1 rounded text-green-400 text-xs font-mono">
-                ✓ Utils
-              </div>
-              <div className="bg-green-500/20 px-3 py-1 rounded text-green-400 text-xs font-mono">
-                ✓ Components
-              </div>
-            </div>
-          </div>
-        </div>
-      </Background>
+      <div className="app h-screen w-screen overflow-hidden text-white select-none bg-[#111]">
+        <LandingView onFinish={handleIntroFinish} />
+      </div>
     );
   }
 
-  return null;
-}
+  if (!user) {
+    return (
+      <div className="app h-screen w-screen overflow-hidden text-white select-none bg-[#111]">
+        <LoginView />
+      </div>
+    );
+  }
 
-// Helper Component
-const StatCard = ({ icon, label, value, color = "text-white" }) => (
-  <div className="bg-white/5 rounded-xl p-4">
-    {icon && <div className={`${color} mb-2`}>{icon}</div>}
-    <div className={`text-3xl font-black ${color}`}>{value}</div>
-    <div className="text-neutral-400 text-xs uppercase tracking-wider">{label}</div>
-  </div>
-);
+  return (
+    <div className="app h-screen w-screen overflow-hidden text-white select-none bg-[#111] font-sans">
+       
+       {/* 1. DASHBOARD */}
+       {view === 'dashboard' && (
+         <DashboardView 
+           onCreateDuel={handleStartCreateDuel} 
+           onPlay={handleOpenLobby} 
+           onLogout={logout}
+           onOpenActiveGames={() => navigate('active-games')} 
+           onOpenHistory={() => navigate('history')} 
+           onOpenBadges={() => navigate('badges')} 
+           // --- 2. HIER WIRD LEADERBOARD VERKNÜPFT ---
+           onOpenLeaderboard={() => navigate('leaderboard')}
+         />
+       )}
+
+       {/* 2. CREATOR */}
+       {view === 'create-duel' && (
+         <CreateDuelView 
+           onCancel={() => navigate('dashboard')}
+           onConfirm={handleAmountConfirmed}
+         />
+       )}
+
+       {/* 3. LOBBY */}
+       {view === 'lobby' && (
+         <LobbyView 
+            onJoinDuel={handleJoinSelectedDuel}
+            onCancel={() => {
+              setIsJoining(false);
+              navigate('dashboard');
+            }}
+         />
+       )}
+
+       {/* 4. PAYMENT */}
+       {view === 'payment' && currentGame && (
+         <PaymentView 
+           amount={creationAmount}
+           onPaymentSuccess={handlePaymentDone}
+         />
+       )}
+       
+       {/* 5. GAME */}
+       {view === 'game' && currentGame && (
+         <GameView 
+            gameData={currentGame}
+            onGameEnd={handleGameEnd}
+         />
+       )}
+       
+       {/* 6. RESULT */}
+       {view === 'result' && currentGame && (
+         <ResultView 
+           gameData={currentGame}
+           onHome={() => {
+              setCurrentGame(null);
+              setCreationAmount(0);
+              setIsJoining(false);
+              navigateReplace('dashboard');
+           }}
+         />
+       )}
+
+       {/* 7. ACTIVE GAMES LIST */}
+       {view === 'active-games' && (
+         <ActiveGamesView 
+            onBack={() => navigate('dashboard')}
+            onSelectGame={(game) => {
+               setCurrentGame(game);
+               navigate('result'); 
+            }}
+         />
+       )}
+
+       {/* 8. HISTORY VIEW */}
+       {view === 'history' && (
+         <HistoryView 
+            onBack={() => navigate('dashboard')}
+            onSelectGame={(game) => {
+               setCurrentGame(game);
+               navigate('result'); 
+            }}
+         />
+       )}
+
+       {/* 9. BADGES VIEW */}
+       {view === 'badges' && (
+         <BadgesView 
+            onBack={() => navigate('dashboard')}
+         />
+       )}
+
+       {/* 10. LEADERBOARD VIEW (NEU) */}
+       {view === 'leaderboard' && (
+         <LeaderboardView 
+            onBack={() => navigate('dashboard')}
+            onChallenge={(playerName) => {
+                // Feature: Direktes Herausfordern
+                console.log("Herausforderung an:", playerName);
+                navigate('create-duel');
+            }}
+         />
+       )}
+       
+    </div>
+  );
+}
