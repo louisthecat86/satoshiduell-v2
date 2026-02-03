@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-// Wir importieren verifyLogin UND createPlayer
-import { verifyLogin, createPlayer } from '../services/supabase';
+// WICHTIG: 'supabase' Client mit importieren!
+import { supabase, verifyLogin, createPlayer } from '../services/supabase';
 
 const AuthContext = createContext();
 
@@ -33,16 +33,12 @@ export const AuthProvider = ({ children }) => {
         return true;
       }
 
-      // 2. VERSUCH: REGISTRIERUNG (Falls Login nicht klappte)
-      // Wir gehen davon aus: Wenn Login fehlschlägt, ist der User vielleicht neu.
-      // (Oder der Pin war wirklich falsch - das merken wir gleich).
-      
+      // 2. VERSUCH: REGISTRIERUNG
       console.log("⚠️ Login ging nicht. Versuche Registrierung...");
       
       const { data: newUser, error: createError } = await createPlayer(name, pin);
 
       if (createError) {
-        // Falls Fehler Code '23505' ist, gibt es den Namen schon -> Dann war der PIN falsch!
         if (createError.code === '23505') {
           throw new Error("Falsche PIN (Name existiert bereits)");
         }
@@ -76,8 +72,42 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('satoshi_user', JSON.stringify(userData));
   };
 
+  // --- NEU: refreshUser Funktion ---
+  // Lädt die aktuellen Daten (Avatar, etc.) aus der DB und aktualisiert den State
+  const refreshUser = async () => {
+    if (!user) return; 
+
+    try {
+      console.log("🔄 Refresh User Data...");
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', user.name) // Wir suchen nach 'username'
+        .single();
+
+      if (data) {
+        // Wir aktualisieren den lokalen User mit den frischen Daten aus der DB
+        const updatedUser = { ...user, ...data };
+        
+        saveUser(updatedUser); // Speichert in State & LocalStorage
+        console.log("✅ User refreshed:", updatedUser);
+      } else if (error) {
+        console.error("Fehler beim Refresh:", error);
+      }
+    } catch (e) {
+      console.error("Refresh Exception:", e);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, error }}>
+    <AuthContext.Provider value={{ 
+        user, 
+        login, 
+        logout, 
+        loading, 
+        error,
+        refreshUser // <--- WICHTIG: Exportieren!
+    }}>
       {children}
     </AuthContext.Provider>
   );

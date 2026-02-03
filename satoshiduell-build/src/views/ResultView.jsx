@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
-import { Trophy, Frown, Loader2, Home, Clock, Target, Zap, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Trophy, Frown, Loader2, Home, Clock, Target, Zap, CheckCircle2, RefreshCw, RefreshCcw, Wallet, Copy } from 'lucide-react'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
 import { getGameStatus, markGameAsClaimed } from '../services/supabase';
 import { createWithdrawLink, getWithdrawLinkStatus } from '../services/lnbits';
 import confetti from 'canvas-confetti';
+import { QRCodeCanvas } from 'qrcode.react'; // WICHTIG: Importieren!
 
 const ResultView = ({ gameData, onHome }) => {
   const { t } = useTranslation();
@@ -14,7 +15,7 @@ const ResultView = ({ gameData, onHome }) => {
 
   const [status, setStatus] = useState('waiting_for_opponent'); 
   const [withdrawData, setWithdrawData] = useState(null); 
-  const [isClaimed, setIsClaimed] = useState(false); 
+  const [isClaimed, setIsClaimed] = useState(gameData.is_claimed || gameData.claimed || false); 
   const [finalGameData, setFinalGameData] = useState(gameData);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -32,36 +33,47 @@ const ResultView = ({ gameData, onHome }) => {
     time: isCreator ? finalGameData.challenger_time : finalGameData.creator_time,
   };
 
+  // --- 0. INITIAL CHECK (REFUND) ---
+  useEffect(() => {
+     if (gameData.withdraw_id) {
+         setWithdrawData({ lnurl: gameData.withdraw_link, id: gameData.withdraw_id });
+         setStatus('refund');
+     } 
+     else if (gameData.status === 'refunded' && gameData.withdraw_link) {
+         setWithdrawData({ lnurl: gameData.withdraw_link, id: null });
+         setStatus('refund');
+     }
+  }, [gameData]);
+
   // --- 1. ZENTRALE ERFOLGS-FUNKTION ---
   const handleSuccess = async () => {
      if (isClaimed) return; 
+     
+     console.log("🎉 SUCCESS: Auszahlung bestätigt. Schließe Fenster...");
      setIsClaimed(true);
-     console.log("🎉 SUCCESS START: Auszahlung bestätigt.");
 
-     try { confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } }); } catch(e){}
+     if (status !== 'refund') {
+        try { confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } }); } catch(e){}
+     }
 
      await markGameAsClaimed(gameData.id); 
 
      setTimeout(() => {
          console.log("🏠 Navigiere zum Dashboard...");
          onHome();
-     }, 2500);
+     }, 2000);
   };
 
   // --- 2. MANUELLER CHECK ---
   const checkWithdrawStatus = async () => {
     if (!withdrawData?.id || isClaimed) return;
-    
     setIsChecking(true);
     const claimed = await getWithdrawLinkStatus(withdrawData.id);
     setIsChecking(false);
-
-    if (claimed) {
-        await handleSuccess(); 
-    }
+    if (claimed) await handleSuccess(); 
   };
 
-  // --- 3. AUTO POLLING ---
+  // --- 3. AUTO POLLING (LNBITS) ---
   useEffect(() => {
     let interval;
     if (withdrawData?.id && !isClaimed) {
@@ -78,22 +90,31 @@ const ResultView = ({ gameData, onHome }) => {
 
   // --- 4. STATUS LADEN ---
   useEffect(() => {
+    if (status === 'refund') return;
+
     const interval = setInterval(async () => {
-      if (status !== 'waiting_for_opponent') return;
-      const { data } = await getGameStatus(gameData.id);
-      if (data) {
-        setFinalGameData(data);
-        if (data.creator_score !== null && data.challenger_score !== null) {
-          evaluateResult(data);
-        }
+      if (status === 'waiting_for_opponent' || finalGameData.status !== 'finished') {
+          const { data } = await getGameStatus(gameData.id);
+          if (data) {
+            setFinalGameData(data);
+            
+            if (data.status === 'refunded') {
+                setWithdrawData({ lnurl: data.withdraw_link, id: data.id });
+                setStatus('refund');
+                return;
+            }
+
+            if (data.creator_score !== null && data.challenger_score !== null) {
+              evaluateResult(data);
+            }
+          }
       }
     }, 2000); 
     return () => clearInterval(interval);
-  }, [status]); 
+  }, [status]);
+
 
   const evaluateResult = async (data) => {
-    if (status !== 'waiting_for_opponent') return;
-
     const myScore = isCreator ? data.creator_score : data.challenger_score;
     const opScore = isCreator ? data.challenger_score : data.creator_score;
     const myTime = isCreator ? data.creator_time : data.challenger_time;
@@ -111,13 +132,15 @@ const ResultView = ({ gameData, onHome }) => {
     setStatus(result);
 
     if (result === 'win') {
-      if (data.is_claimed) {
+      if (data.is_claimed || data.claimed) {
           setIsClaimed(true);
       } else {
-          const winAmount = data.amount * 2; 
-          const dataLink = await createWithdrawLink(winAmount, data.id);
-          if (dataLink && dataLink.lnurl && dataLink.id) {
-            setWithdrawData(dataLink);
+          if (!withdrawData) {
+              const winAmount = data.amount * 2; 
+              const dataLink = await createWithdrawLink(winAmount, data.id);
+              if (dataLink && dataLink.lnurl && dataLink.id) {
+                setWithdrawData(dataLink);
+              }
           }
       }
     }
@@ -153,6 +176,83 @@ const ResultView = ({ gameData, onHome }) => {
     );
   };
 
+  // =========================================================
+  // ANSICHT 1: REFUND (Rückerstattung - ROTES DESIGN)
+  // =========================================================
+  if (status === 'refund') {
+    return (
+        <Background>
+          <div className="w-full max-w-md mx-auto relative p-6 flex flex-col items-center justify-center min-h-[80vh]">
+              
+              {/* Header */}
+              <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center border-2 border-red-500 mb-6 animate-pulse">
+                 <RefreshCcw size={48} className="text-red-500"/>
+              </div>
+              <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2">Rückerstattung</h2>
+              <p className="text-neutral-400 text-sm text-center mb-8 px-4">
+                  Dein Gegner ist nicht rechtzeitig erschienen. Hier sind deine Sats zurück.
+              </p>
+              
+              {/* QR Code Bereich */}
+              {!isClaimed ? (
+                  <>
+                     <div className="bg-white p-4 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.2)] mb-6 relative group">
+                          {withdrawData?.lnurl ? (
+                            <div className="flex flex-col gap-4">
+                               <div className="flex justify-center">
+                                  <QRCodeCanvas value={`lightning:${withdrawData.lnurl}`} size={200} />
+                               </div>
+                               
+                               {/* Copy Button */}
+                               <button 
+                                  onClick={() => {navigator.clipboard.writeText(withdrawData.lnurl); alert(t('nostr_copied'));}}
+                                  className="absolute top-4 right-4 bg-black/5 hover:bg-black/10 p-2 rounded-lg transition-colors"
+                               >
+                                  <Copy size={16} className="text-black/50" />
+                               </button>
+                            </div>
+                          ) : (
+                            <div className="w-48 h-48 flex items-center justify-center"><Loader2 className="animate-spin text-neutral-400 w-10 h-10" /></div>
+                          )}
+                     </div>
+                     
+                     {/* ACTIONS */}
+                     <div className="w-full flex flex-col gap-3 px-4">
+                        {withdrawData?.lnurl && (
+                             <a 
+                                href={`lightning:${withdrawData.lnurl}`}
+                                className="w-full bg-gradient-to-r from-red-500 to-orange-500 hover:scale-[1.02] transition-transform py-4 rounded-xl flex items-center justify-center gap-2 text-white font-black uppercase text-sm shadow-lg"
+                             >
+                                <Wallet size={20}/> {t('btn_wallet')}
+                             </a>
+                        )}
+
+                        <button onClick={checkWithdrawStatus} disabled={isChecking} className="w-full text-xs bg-white/10 hover:bg-white/20 px-3 py-3 rounded-xl text-neutral-300 flex items-center justify-center gap-2 transition-colors">
+                            <RefreshCw size={14} className={isChecking ? "animate-spin" : ""} />
+                            {isChecking ? t('checking') : t('check_status')}
+                        </button>
+                     </div>
+                  </>
+              ) : (
+                // Erfolg Screen beim Refund
+                <div className="bg-green-500/10 border border-green-500/50 rounded-2xl p-8 w-full flex flex-col items-center animate-in zoom-in duration-500">
+                   <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.6)]">
+                      <CheckCircle2 size={40} className="text-black" />
+                   </div>
+                   <h3 className="text-2xl font-black uppercase text-white mb-2 italic">Erstattet!</h3>
+                   <p className="text-green-200 text-sm text-center font-bold">Deine Sats sind zurück.</p>
+                </div>
+              )}
+
+              <Button onClick={onHome} variant="secondary" className="mt-8 w-full">Zum Dashboard</Button>
+          </div>
+        </Background>
+    );
+  }
+
+  // =========================================================
+  // ANSICHT 2: NORMALES ERGEBNIS (Win/Lose/Draw)
+  // =========================================================
   return (
     <Background>
       <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto relative overflow-y-auto p-4 pb-20 scrollbar-hide">
@@ -161,34 +261,34 @@ const ResultView = ({ gameData, onHome }) => {
           
           {/* HEADER STATUS */}
           <div className="mb-8 text-center min-h-[120px] flex flex-col items-center justify-center">
-             {status === 'waiting_for_opponent' && (
+              {status === 'waiting_for_opponent' && (
                 <>
                   <Loader2 size={48} className="text-orange-500 animate-spin mb-4" />
                   <h2 className="text-2xl font-black text-white uppercase italic animate-pulse">{t('result_waiting_title')}</h2>
                   <p className="text-neutral-500 text-xs mt-2 uppercase tracking-widest">{t('result_waiting_subtitle')}</p>
                 </>
-             )}
-             {status === 'win' && (
+              )}
+              {status === 'win' && (
                 <>
                   <Trophy size={64} className="text-yellow-400 mb-4 drop-shadow-[0_0_25px_rgba(250,204,21,0.5)]" />
                   <h2 className="text-4xl font-black text-white uppercase italic drop-shadow-lg">{t('result_win_title')}</h2>
                   <p className="text-orange-500 font-bold tracking-widest uppercase mt-2 text-sm bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20">+{finalGameData.amount * 2} {t('result_win_subtitle')}</p>
                 </>
-             )}
-             {status === 'lose' && (
+              )}
+              {status === 'lose' && (
                 <>
                    <Frown size={64} className="text-neutral-600 mb-4" />
                    <h2 className="text-4xl font-black text-neutral-500 uppercase italic">{t('result_lose_title')}</h2>
                    <p className="text-neutral-600 text-xs mt-2 uppercase tracking-widest">{t('result_lose_subtitle')}</p>
                 </>
-             )}
-             {status === 'draw' && (
+              )}
+              {status === 'draw' && (
                 <>
                    <div className="text-6xl mb-4">🤝</div>
                    <h2 className="text-4xl font-black text-white uppercase italic">{t('result_draw_title')}</h2>
                    <p className="text-neutral-500 text-xs mt-2 uppercase tracking-widest">{t('result_draw_subtitle')}</p>
                 </>
-             )}
+              )}
           </div>
 
           {/* STATS BOARD */}
@@ -200,7 +300,7 @@ const ResultView = ({ gameData, onHome }) => {
               <div className="flex-1 max-w-[160px]"><PlayerStatCard name={opData.name} score={opData.score} time={opData.time} isMe={false} winStatus={status === 'win' ? 'lose' : (status === 'lose' ? 'win' : 'draw')} /></div>
           </div>
 
-          {/* GEWINN BEREICH */}
+          {/* GEWINN BEREICH (MIT WALLET BUTTON) */}
           {status === 'win' && (
             <div className="animate-in slide-in-from-bottom-4 duration-700 w-full mb-8 flex flex-col items-center">
               
@@ -209,30 +309,42 @@ const ResultView = ({ gameData, onHome }) => {
                   <h3 className="font-black uppercase italic text-xl mb-4 text-white drop-shadow-md">{t('result_claim_title')}</h3>
                   <div className="bg-white p-4 rounded-2xl shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4 relative group">
                     {withdrawData?.lnurl ? (
-                      <a href={`lightning:${withdrawData.lnurl}`} className="cursor-pointer block">
-                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${withdrawData.lnurl}`} alt="Withdraw QR" className="w-48 h-48 sm:w-56 sm:h-56 mix-blend-multiply" />
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                           <div className="bg-white/80 backdrop-blur-sm p-3 rounded-full shadow-xl border border-orange-500/20">
-                             <Zap className="text-orange-500 fill-orange-500 animate-pulse" size={32} />
-                           </div>
-                        </div>
-                      </a>
+                      <div className="flex flex-col gap-4">
+                         <div className="flex justify-center">
+                             <QRCodeCanvas value={`lightning:${withdrawData.lnurl}`} size={200} />
+                         </div>
+                         {/* Copy Button */}
+                         <button 
+                              onClick={() => {navigator.clipboard.writeText(withdrawData.lnurl); alert(t('nostr_copied'));}}
+                              className="absolute top-4 right-4 bg-black/5 hover:bg-black/10 p-2 rounded-lg transition-colors"
+                           >
+                              <Copy size={16} className="text-black/50" />
+                           </button>
+                      </div>
                     ) : (
                       <div className="w-48 h-48 flex items-center justify-center"><Loader2 className="animate-spin text-neutral-400 w-10 h-10" /></div>
                     )}
                   </div>
                   
-                  {/* Manuell prüfen - JETZT ÜBERSETZT */}
-                  <div className="flex flex-col items-center gap-2 mt-2 w-full px-8">
-                     <div className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest animate-pulse">{t('result_claim_btn')}</div>
-                     <button onClick={checkWithdrawStatus} disabled={isChecking} className="mt-2 text-xs bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-neutral-300 flex items-center gap-2 transition-colors">
-                        <RefreshCw size={12} className={isChecking ? "animate-spin" : ""} />
-                        {isChecking ? t('checking') : t('check_status')}
-                     </button>
+                  {/* ACTIONS */}
+                  <div className="flex flex-col items-center gap-3 mt-2 w-full px-8">
+                      {withdrawData?.lnurl && (
+                          <a 
+                             href={`lightning:${withdrawData.lnurl}`}
+                             className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 hover:scale-[1.02] transition-transform py-4 rounded-xl flex items-center justify-center gap-2 text-black font-black uppercase text-sm shadow-lg"
+                          >
+                             <Wallet size={20} className="text-black"/> {t('btn_wallet')}
+                          </a>
+                      )}
+
+                      <button onClick={checkWithdrawStatus} disabled={isChecking} className="text-xs bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-neutral-300 flex items-center gap-2 transition-colors">
+                         <RefreshCw size={12} className={isChecking ? "animate-spin" : ""} />
+                         {isChecking ? t('checking') : t('check_status')}
+                      </button>
                   </div>
                 </>
               ) : (
-                // --- ERFOLG - JETZT ÜBERSETZT ---
+                // --- ERFOLG ---
                 <div className="bg-green-500/10 border border-green-500/50 rounded-2xl p-8 w-full flex flex-col items-center animate-in zoom-in duration-500">
                    <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.6)]">
                       <CheckCircle2 size={40} className="text-black" />

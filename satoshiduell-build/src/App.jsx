@@ -12,11 +12,14 @@ import ResultView from './views/ResultView';
 import ActiveGamesView from './views/ActiveGamesView';
 import HistoryView from './views/HistoryView';
 import BadgesView from './views/BadgesView';
-import LeaderboardView from './views/LeaderboardView'; // <--- 1. NEUER IMPORT
+import LeaderboardView from './views/LeaderboardView'; 
+import DonateView from './views/DonateView'; // <--- NEU: Donate View importiert
+import SettingsView from './views/SettingsView';
 
 // --- SERVICES & HOOKS ---
-import { createDuelEntry, joinDuel, activateDuel, submitGameResult } from './services/supabase';
+import { createDuelEntry, joinDuel, activateDuel, submitGameResult, supabase } from './services/supabase'; 
 import { useAuth } from './hooks/useAuth';
+import { createWithdrawLink } from './services/lnbits'; 
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -29,8 +32,10 @@ export default function App() {
   const [view, setView] = useState('dashboard');
   const [currentGame, setCurrentGame] = useState(null); 
   const [creationAmount, setCreationAmount] = useState(0); 
-  
   const [isJoining, setIsJoining] = useState(false); 
+  
+  // State für den Gegner
+  const [challengeTarget, setChallengeTarget] = useState(null);
 
   // --- NAVIGATION (HISTORY API) ---
   useEffect(() => {
@@ -40,6 +45,7 @@ export default function App() {
         if (event.state.view === 'dashboard') {
           setIsJoining(false);
           setCurrentGame(null);
+          setChallengeTarget(null); 
         }
       } else {
         setView('dashboard');
@@ -68,12 +74,14 @@ export default function App() {
 
   const handleStartCreateDuel = () => {
     setIsJoining(false); 
+    setChallengeTarget(null); 
     navigate('create-duel');
   };
 
-  const handleAmountConfirmed = async (amount) => {
+  const handleAmountConfirmed = async (amount, targetPlayer = null) => {
     setCreationAmount(amount);
-    const { data, error } = await createDuelEntry(user.name, amount);
+    
+    const { data, error } = await createDuelEntry(user.name, amount, targetPlayer);
     
     if (data) {
       setCurrentGame(data); 
@@ -87,6 +95,11 @@ export default function App() {
   const handleOpenLobby = () => {
     setIsJoining(true); 
     navigate('lobby');
+  };
+
+  const handleOpenChallengesList = () => {
+      setIsJoining(true);
+      navigate('lobby'); 
   };
 
   const handleJoinSelectedDuel = (game) => {
@@ -127,6 +140,57 @@ export default function App() {
     navigateReplace('result'); 
   };
 
+  // --- REFUND FUNKTION (Mit Betrag-Check) ---
+  const handleRefund = async (game) => {
+    console.log("🔍 REFUND DEBUG CHECK:", game);
+    
+    // SAFETY: Betrag sicherstellen (als Number)
+    const refundAmount = Number(game.amount);
+
+    if (!refundAmount || refundAmount <= 0) {
+        alert(`FEHLER: Kein gültiger Einsatz gefunden (Betrag: ${game.amount}). Kann nicht erstatten.`);
+        return;
+    }
+
+    if (!confirm(`Willst du dieses Spiel stornieren und ${refundAmount} Sats zurückholen?`)) return;
+    
+    console.log(`Starte Refund für ${refundAmount} Sats...`);
+
+    // Withdraw Link erstellen
+    const linkData = await createWithdrawLink(refundAmount, game.id);
+    
+    if (!linkData || !linkData.lnurl) {
+        alert("Fehler: Konnte keinen Refund-Link erstellen. Bitte Admin kontaktieren.");
+        return;
+    }
+
+    // Datenbank updaten
+    const { error } = await supabase
+        .from('duels')
+        .update({ 
+            status: 'refunded', 
+            withdraw_link: linkData.lnurl 
+        })
+        .eq('id', game.id);
+
+    if (error) {
+        console.error("DB Error:", error);
+        alert("Fehler beim Speichern des Refunds.");
+        return;
+    }
+
+    // Weiterleiten (Daten im State aktualisieren)
+    setCurrentGame({ 
+        ...game, 
+        amount: refundAmount, 
+        status: 'refunded', 
+        withdraw_link: linkData.lnurl,
+        withdraw_id: linkData.id 
+    });
+    
+    navigate('result');
+  };
+
 
   // --- RENDER LOGIK ---
 
@@ -158,8 +222,10 @@ export default function App() {
            onOpenActiveGames={() => navigate('active-games')} 
            onOpenHistory={() => navigate('history')} 
            onOpenBadges={() => navigate('badges')} 
-           // --- 2. HIER WIRD LEADERBOARD VERKNÜPFT ---
            onOpenLeaderboard={() => navigate('leaderboard')}
+           onOpenChallenges={handleOpenChallengesList}
+           onDonate={() => navigate('donate')} // <--- Spenden Button
+           onOpenSettings={() => navigate('settings')}
          />
        )}
 
@@ -168,6 +234,7 @@ export default function App() {
          <CreateDuelView 
            onCancel={() => navigate('dashboard')}
            onConfirm={handleAmountConfirmed}
+           targetPlayer={challengeTarget}
          />
        )}
 
@@ -215,9 +282,34 @@ export default function App() {
        {view === 'active-games' && (
          <ActiveGamesView 
             onBack={() => navigate('dashboard')}
+            onRefund={handleRefund} 
             onSelectGame={(game) => {
-               setCurrentGame(game);
-               navigate('result'); 
+               let safeGame = { ...game };
+               if (typeof safeGame.questions === 'string') {
+                   try {
+                       safeGame.questions = JSON.parse(safeGame.questions);
+                   } catch (e) {
+                       console.error("Fehler beim Parsen der Fragen:", e);
+                       safeGame.questions = [];
+                   }
+               }
+               setCurrentGame(safeGame);
+               
+               const isCreator = user.name === game.creator;
+               const myScore = isCreator ? game.creator_score : game.challenger_score;
+
+               if (game.status === 'refunded') {
+                   navigate('result');
+                   return;
+               }
+
+               if (myScore === null && game.status !== 'finished') {
+                   console.log("👉 Du musst noch spielen -> Navigiere zu GAME");
+                   navigate('game');
+               } else {
+                   console.log("👉 Du hast schon gespielt -> Navigiere zu RESULT");
+                   navigate('result'); 
+               }
             }}
          />
        )}
@@ -240,15 +332,30 @@ export default function App() {
          />
        )}
 
-       {/* 10. LEADERBOARD VIEW (NEU) */}
+       {/* 10. LEADERBOARD VIEW */}
        {view === 'leaderboard' && (
          <LeaderboardView 
             onBack={() => navigate('dashboard')}
             onChallenge={(playerName) => {
-                // Feature: Direktes Herausfordern
                 console.log("Herausforderung an:", playerName);
-                navigate('create-duel');
+                setChallengeTarget(playerName); 
+                setIsJoining(false);            
+                navigate('create-duel');        
             }}
+         />
+       )}
+
+       {/* 11. DONATE VIEW (NEU) */}
+       {view === 'donate' && (
+         <DonateView 
+            onBack={() => navigate('dashboard')}
+         />
+       )}
+
+       {/* 12. SETTINGS VIEW */}
+       {view === 'settings' && (
+         <SettingsView 
+            onBack={() => navigate('dashboard')}
          />
        )}
        

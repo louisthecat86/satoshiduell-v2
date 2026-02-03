@@ -9,14 +9,15 @@ export const TRANSLATIONS = {
     btn_copy_withdraw: "Code kopieren",
     btn_copy_invoice: "Invoice kopieren",
     btn_check: "Habe bezahlt",
+    btn_paid: "Ich habe bezahlt",
     btn_refund: "Rückzahlen",
     btn_start: "Invoice erzeugen",
-    btn_ready: "Bereit!",
+    btn_ready: "JETZT STARTEN", // <--- ANGEPASST
     btn_share: "Herausfordern!",
     btn_back_menu: "Zurück zum Menü",
     btn_next_payment: "Weiter zur Zahlung",
     back_home: "Zurück zum Dashboard",
-    checking: "Prüfe...", // <--- NEU
+    checking: "Prüfe...",
 
     // --- TILES ---
     tile_lobby: "Lobby",
@@ -52,6 +53,15 @@ export const TRANSLATIONS = {
     dash_unclaimed_title: "Gewinn verfügbar!",
     dash_unclaimed_text: "Du hast offene Gewinne",
 
+   // --- SETTINGS ---
+    settings_general: "Allgemein",
+    settings_sound: "Soundeffekte",
+    settings_notifications: "Benachrichtigungen",
+    settings_notifications_desc: "Erinnere mich bei neuen Challenges",
+    settings_security: "Sicherheit",
+    settings_change_pin: "PIN ändern",
+    settings_saved: "PIN erfolgreich geändert!",
+
     // --- LOBBY ---
     lobby_fight: "Kämpfen",
     lobby_wait: "Warte auf Gegner...",
@@ -61,6 +71,7 @@ export const TRANSLATIONS = {
     challenge_sent: "Herausforderung an",
     refund_wait: "Wartezeit läuft...",
     share_nostr: "Auf Nostr teilen",
+
 
     // --- SETUP & CREATE ---
     create_title: "Wähle deinen Einsatz",
@@ -80,7 +91,7 @@ export const TRANSLATIONS = {
     pay_subtitle: "Scanne den QR Code mit deiner Wallet",
     pay_wait: "Warte auf Zahlungseingang...",
     pay_success_title: "Zahlung erhalten!",
-    pay_success_sub: "Mach dich bereit, es geht gleich los.",
+    pay_success_sub: "Mach dich bereit...",
 
     // --- ACTIVE GAMES & HISTORY ---
     active_games_title: "Aktive Spiele",
@@ -101,8 +112,8 @@ export const TRANSLATIONS = {
     redirect_dashboard: "Leite weiter zum Dashboard...",
 
     // --- GAME ---
-    pre_game_title: "Zahlung erhalten!",
-    pre_game_text: "Gleich geht es los. Mach dich bereit.",
+    pre_game_title: "Bereit zum Kampf!", // <--- ANGEPASST
+    pre_game_text: "Deine Zahlung ist angekommen. Klicke unten, um das Duell zu starten.", // <--- ANGEPASST
     game_question: "Frage",
     game_vs_training: "Training",
     game_vs_opponent: "Gegner",
@@ -181,10 +192,7 @@ export const TRANSLATIONS = {
     settings_change_pin: "PIN ändern",
     settings_saved: "Gespeichert!",
     settings_back: "Zurück",
-    donate_title: "Unterstütze uns",
-    donate_text: "SatoshiDuell ist Free & Open Source.",
-    donate_btn: "Invoice erzeugen",
-    donate_thanks: "Vielen Dank!",
+    
     admin_title: "Admin Bereich",
     admin_stats_total: "Spiele Gesamt",
     admin_stats_open: "Offen",
@@ -192,7 +200,18 @@ export const TRANSLATIONS = {
     admin_search_placeholder: "Suche Spieler/ID...",
     admin_filter_all: "Alle",
     admin_filter_open: "Offen",
-    admin_filter_finished: "Beendet"
+    admin_filter_finished: "Beendet",
+
+    // --- DONATION ---
+    donate_intro_title: "SUPPORT THE DEV",
+    donate_intro_text: "Hilf uns dabei, Satoshi Duell weiterzuentwickeln und die Serverkosten zu decken. Jeder Sat zählt!",
+    donate_btn: "Spenden",
+    donate_error_amount: "Bitte einen Betrag eingeben",
+    donate_error_create: "Fehler: Konnte keine Rechnung erstellen.",
+    donate_thanks_title: "DANKE!",
+    donate_thanks_text: "Deine Unterstützung ist angekommen.",
+    donate_invoice_sub: "SATS SPENDE",
+    donate_scan_hint: "Scanne diesen Code mit deiner Wallet, um die Spende zu senden."
   },
 
   en: {
@@ -205,14 +224,15 @@ export const TRANSLATIONS = {
     btn_copy_withdraw: "Copy Code",
     btn_copy_invoice: "Copy Invoice",
     btn_check: "I paid",
+    btn_paid: "I paid",
     btn_refund: "Refund",
     btn_start: "Create Invoice",
-    btn_ready: "Ready!",
+    btn_ready: "START NOW", // <--- ANGEPASST
     btn_share: "Challenge!",
     btn_back_menu: "Back to Menu",
     btn_next_payment: "Proceed to Payment",
     back_home: "Back to Dashboard",
-    checking: "Checking...", // <--- NEU
+    checking: "Checking...",
 
     // --- TILES ---
     tile_lobby: "Lobby",
@@ -248,6 +268,15 @@ export const TRANSLATIONS = {
     dash_unclaimed_title: "Prize available!",
     dash_unclaimed_text: "You have unclaimed wins",
 
+    // --- SETTINGS ---
+    settings_general: "General",
+    settings_sound: "Sound Effects",
+    settings_notifications: "Notifications",
+    settings_notifications_desc: "Remind me on new challenges",
+    settings_security: "Security",
+    settings_change_pin: "Change PIN",
+    settings_saved: "PIN changed successfully!",
+
     // --- LOBBY ---
     lobby_fight: "Fight",
     lobby_wait: "Waiting for opp...",
@@ -276,19 +305,7 @@ export const TRANSLATIONS = {
     pay_subtitle: "Scan the QR code with your wallet",
     pay_wait: "Waiting for payment...",
     pay_success_title: "Payment received!",
-    pay_success_sub: "Get ready, starting soon.",
-
-    // --- GAME ---
-    pre_game_title: "Payment received!",
-    pre_game_text: "Get ready. Starting soon.",
-    game_question: "Question",
-    game_vs_training: "Training",
-    game_vs_opponent: "Opponent",
-    game_over: "Game Over!",
-    game_over_sub: "You finished the duel.",
-    game_score: "Your Score",
-    game_time_label: "Time Taken",
-    game_score_label: "Accuracy",
+    pay_success_sub: "Get ready...",
 
     // --- ACTIVE GAMES & HISTORY ---
     active_games_title: "Active Games",
@@ -307,6 +324,18 @@ export const TRANSLATIONS = {
     withdraw_success_title: "Withdrawal successful!",
     withdraw_success_msg: "Sats are in your wallet.",
     redirect_dashboard: "Redirecting to Dashboard...",
+
+    // --- GAME ---
+    pre_game_title: "Ready to Fight!", // <--- ANGEPASST
+    pre_game_text: "Payment confirmed. Click below to start the quiz.", // <--- ANGEPASST
+    game_question: "Question",
+    game_vs_training: "Training",
+    game_vs_opponent: "Opponent",
+    game_over: "Game Over!",
+    game_over_sub: "You finished the duel.",
+    game_score: "Your Score",
+    game_time_label: "Time Taken",
+    game_score_label: "Accuracy",
 
     // --- RESULTS ---
     result_waiting_title: "WAITING FOR OPPONENT",
@@ -377,10 +406,7 @@ export const TRANSLATIONS = {
     settings_change_pin: "Change PIN",
     settings_saved: "Saved!",
     settings_back: "Back",
-    donate_title: "Support us",
-    donate_text: "SatoshiDuell is Free & Open Source.",
-    donate_btn: "Create Invoice",
-    donate_thanks: "Thank you!",
+    
     admin_title: "Admin Area",
     admin_stats_total: "Total Games",
     admin_stats_open: "Open",
@@ -388,7 +414,18 @@ export const TRANSLATIONS = {
     admin_search_placeholder: "Search player/ID...",
     admin_filter_all: "All",
     admin_filter_open: "Open",
-    admin_filter_finished: "Finished"
+    admin_filter_finished: "Finished",
+
+    // --- DONATION ---
+    donate_intro_title: "SUPPORT THE DEV",
+    donate_intro_text: "Help us develop Satoshi Duell further and cover server costs. Every sat counts!",
+    donate_btn: "Donate",
+    donate_error_amount: "Please enter an amount",
+    donate_error_create: "Error: Could not create invoice.",
+    donate_thanks_title: "THANK YOU!",
+    donate_thanks_text: "Your support has been received.",
+    donate_invoice_sub: "SATS DONATION",
+    donate_scan_hint: "Scan this code with your wallet to send the donation."
   },
 
   es: {
@@ -401,14 +438,15 @@ export const TRANSLATIONS = {
     btn_copy_withdraw: "Copiar Código",
     btn_copy_invoice: "Copiar Factura",
     btn_check: "He pagado",
+    btn_paid: "He pagado",
     btn_refund: "Reembolso",
     btn_start: "Crear Factura",
-    btn_ready: "Listo!",
+    btn_ready: "EMPEZAR AHORA", // <--- ANGEPASST
     btn_share: "¡Desafiar!",
     btn_back_menu: "Volver al Menú",
     btn_next_payment: "Ir al Pago",
     back_home: "Volver al Panel",
-    checking: "Verificando...", // <--- NEU
+    checking: "Verificando...",
 
     // --- TILES ---
     tile_lobby: "Lobby",
@@ -444,6 +482,15 @@ export const TRANSLATIONS = {
     dash_unclaimed_title: "¡Premio disponible!",
     dash_unclaimed_text: "Tienes ganancias pendientes",
 
+    // --- SETTINGS ---
+    settings_general: "General",
+    settings_sound: "Efectos de sonido",
+    settings_notifications: "Notificaciones",
+    settings_notifications_desc: "Avisarme de nuevos desafíos",
+    settings_security: "Seguridad",
+    settings_change_pin: "Cambiar PIN",
+    settings_saved: "¡PIN cambiado con éxito!",
+
     // --- LOBBY ---
     lobby_fight: "Luchar",
     lobby_wait: "Esperando...",
@@ -472,20 +519,8 @@ export const TRANSLATIONS = {
     pay_subtitle: "Escanea el código QR con tu billetera",
     pay_wait: "Esperando pago...",
     pay_success_title: "¡Pago recibido!",
-    pay_success_sub: "Prepárate, empieza pronto.",
+    pay_success_sub: "Prepárate...",
 
-    // --- GAME ---
-    pre_game_title: "¡Pago recibido!",
-    pre_game_text: "Prepárate. Empieza pronto.",
-    game_question: "Pregunta",
-    game_vs_training: "Entrenamiento",
-    game_vs_opponent: "Oponente",
-    game_over: "¡Juego terminado!",
-    game_over_sub: "Has terminado el duelo.",
-    game_score: "Tu Puntuación",
-    game_time_label: "Tiempo Total",
-    game_score_label: "Precisión",
-    
     // --- ACTIVE GAMES & HISTORY ---
     active_games_title: "Juegos Activos",
     active_your_actions: "Tus Acciones",
@@ -503,6 +538,18 @@ export const TRANSLATIONS = {
     withdraw_success_title: "¡Retiro exitoso!",
     withdraw_success_msg: "Los Sats están en tu billetera.",
     redirect_dashboard: "Volviendo al inicio...",
+    
+    // --- GAME ---
+    pre_game_title: "¡Listo para luchar!", // <--- ANGEPASST
+    pre_game_text: "Pago confirmado. Haz clic abajo para iniciar el quiz.", // <--- ANGEPASST
+    game_question: "Pregunta",
+    game_vs_training: "Entrenamiento",
+    game_vs_opponent: "Oponente",
+    game_over: "¡Juego terminado!",
+    game_over_sub: "Has terminado el duelo.",
+    game_score: "Tu Puntuación",
+    game_time_label: "Tiempo Total",
+    game_score_label: "Precisión",
     
     // --- RESULTS ---
     result_waiting_title: "ESPERANDO OPONENTE",
@@ -573,10 +620,7 @@ export const TRANSLATIONS = {
     settings_change_pin: "Cambiar PIN",
     settings_saved: "¡Guardado!",
     settings_back: "Atrás",
-    donate_title: "Apóyanos",
-    donate_text: "SatoshiDuell es Gratis y Open Source.",
-    donate_btn: "Crear Factura",
-    donate_thanks: "¡Gracias!",
+    
     admin_title: "Admin",
     admin_stats_total: "Total Juegos",
     admin_stats_open: "Abiertos",
@@ -584,6 +628,17 @@ export const TRANSLATIONS = {
     admin_search_placeholder: "Buscar...",
     admin_filter_all: "Todos",
     admin_filter_open: "Abiertos",
-    admin_filter_finished: "Terminados"
+    admin_filter_finished: "Terminados",
+
+    // --- DONATION ---
+    donate_intro_title: "APOYA AL DEV",
+    donate_intro_text: "Ayúdanos a seguir desarrollando Satoshi Duell y cubrir los costos del servidor. ¡Cada sat cuenta!",
+    donate_btn: "Donar",
+    donate_error_amount: "Por favor ingresa una cantidad",
+    donate_error_create: "Error: No se pudo crear la factura.",
+    donate_thanks_title: "¡GRACIAS!",
+    donate_thanks_text: "Tu apoyo ha sido recibido.",
+    donate_invoice_sub: "DONACIÓN SATS",
+    donate_scan_hint: "Escanea este código con tu wallet para enviar la donación."
   }
 };
