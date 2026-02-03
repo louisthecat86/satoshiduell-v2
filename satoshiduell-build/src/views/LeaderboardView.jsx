@@ -5,6 +5,7 @@ import { Home, Swords, Loader2, Star, Crown, Medal, ArrowLeft } from 'lucide-rea
 import { fetchLeaderboard } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
+import { playSound } from '../utils/sound';
 
 const LeaderboardView = ({ onBack, onChallenge }) => {
   const { user } = useAuth();
@@ -27,9 +28,10 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
       return `${wins} Kämpfe gewonnen`;
   };
 
-  // Daten laden
+  // Daten laden (neu: auch neu laden wenn sich der User ändert)
   useEffect(() => {
     const loadData = async () => {
+      setLoading(true);
       const { data } = await fetchLeaderboard();
       if (data) {
         setLeaderboard(data);
@@ -37,7 +39,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [user]);
 
   // Hilfskomponente Podium
   const PodiumPlace = ({ player, rank }) => {
@@ -52,8 +54,8 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
 
     return (
       <div className={`flex flex-col items-center ${isFirst ? '-mt-8 z-10' : 'mt-4'} flex-1 min-w-0`}>
-        <div className="relative group cursor-pointer" onClick={() => !isMe && onChallenge(player.username)}>
-          <div className={`rounded-full border-4 overflow-hidden bg-neutral-900 ${size} ${border} transition-transform group-hover:scale-105`}>
+        <div className="relative group cursor-pointer">
+          <div className={`rounded-md border-4 overflow-hidden bg-neutral-900 ${size} ${border} transition-transform group-hover:scale-105`} onClick={() => { const muted = localStorage.getItem('satoshi_sound') === 'false'; playSound('click', muted); if(!isMe) onChallenge(player.username); }}>
             {/* AVATAR LOGIK: Eigener Avatar oder Dicebear Fallback */}
             <img 
                 src={player.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${player.username}`} 
@@ -75,7 +77,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
         {/* Challenge Button im Podium */}
         {!isMe && (
             <button 
-                onClick={() => onChallenge(player.username)}
+                onClick={() => { const muted = localStorage.getItem('satoshi_sound') === 'false'; playSound('click', muted); onChallenge(player.username); }}
                 className="mt-1 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-orange-500 transition-all active:scale-90 border border-white/5"
             >
                 <Swords size={14} />
@@ -130,7 +132,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                       {/* LINKER BEREICH: Rang, Bild, Name */}
                       <div className="flex items-center gap-4 flex-1 min-w-0 mr-4">
                         <span className="font-mono font-black text-neutral-600 w-6 italic flex-shrink-0">#{i + 4}</span>
-                        <div className="w-10 h-10 rounded-xl bg-neutral-800 border border-white/5 overflow-hidden flex-shrink-0">
+                        <div className="w-10 h-10 rounded-md bg-neutral-800 border border-white/5 overflow-hidden flex-shrink-0">
                            {/* AVATAR LOGIK AUCH HIER */}
                            <img 
                                 src={p.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${p.username}`} 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { playSound } from '../../utils/sound';
 
 const Button = ({ 
   children, 
@@ -21,10 +22,22 @@ const Button = ({
 
   const widthClass = fullWidth ? "w-full" : "";
 
+  const handleClick = (e) => {
+    try {
+      const muted = localStorage.getItem('satoshi_sound') === 'false';
+      playSound('click', muted);
+    } catch (e) {
+      // ignore
+    }
+
+    if (props.onClick) props.onClick(e);
+  };
+
   return (
     <button 
       className={`${baseStyles} ${variants[variant] || variants.primary} ${widthClass} ${className}`}
       {...props}
+      onClick={handleClick}
     >
       {children}
     </button>

@@ -29,7 +29,8 @@ export const NOSTR_CONFIG = {
 export const SOUND_FILES = {
   click: '/click.mp3',
   correct: '/correct.mp3',
-  wrong: '/wrong.mp3',
+  // Einige Uploads nutzten 'Wrong.mp3' mit Großbuchstaben – unterstütze beides via existierender Datei
+  wrong: '/Wrong.mp3',
   tick: '/tick.mp3',
 };
 

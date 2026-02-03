@@ -38,6 +38,26 @@ export const createPlayer = async (name, pin) => {
     .insert([{ name: name, pin: hashedPin }]) 
     .select()
     .single();
+
+  if (error) return { data, error };
+
+  // Ensure there is a corresponding profile row so UI (avatar, stats) works reliably
+  try {
+    await supabase
+      .from('profiles')
+      .upsert({
+        username: String(name).trim(),
+        games_played: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        total_sats_won: 0,
+        last_updated: new Date()
+      });
+  } catch (e) {
+    console.error('Profile upsert error for new player:', e);
+  }
+
   return { data, error };
 };
 
@@ -397,13 +417,23 @@ export const fetchUserProfile = async (username) => {
     return { data, error };
 };
 
+// 5. MULTIPLE PROFILE FETCH (Utility)
+export const fetchProfiles = async (usernames) => {
+    if (!Array.isArray(usernames) || usernames.length === 0) return { data: [], error: null };
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('username', usernames);
+    return { data, error };
+};
+
 // --- USER & SETTINGS ---
 
 export const updateUserPin = async (username, newPin) => {
   const { data, error } = await supabase
     .from('profiles')
     .update({ pin: newPin })
-    .eq('name', username)
+    .eq('username', username)
     .select();
 
   if (error) {

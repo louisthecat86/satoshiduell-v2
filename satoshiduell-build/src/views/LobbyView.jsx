@@ -3,7 +3,7 @@ import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
 import { Users, Search, RefreshCw, Swords, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
-import { fetchOpenDuels } from '../services/supabase';
+import { fetchOpenDuels, fetchProfiles } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 const LobbyView = ({ onJoinDuel, onCancel }) => {
@@ -13,13 +13,34 @@ const LobbyView = ({ onJoinDuel, onCancel }) => {
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Spiele laden
+  // Spiele laden und mit Avataren anreichern
   const loadGames = async () => {
     setLoading(true);
+    // Falls kein eingelogger User vorhanden ist, breche früh ab
+    if (!user?.name) {
+      setGames([]);
+      setLoading(false);
+      return;
+    }
+
     // Wir übergeben den eigenen Namen, damit wir unsere eigenen Spiele nicht sehen
     const { data } = await fetchOpenDuels(user.name);
     if (data) {
-      setGames(data);
+      // Lade zugehörige Profile (creator + target_player)
+      const usernames = Array.from(new Set(data.flatMap(g => [g.creator, g.target_player]).filter(Boolean)));
+      const { data: profiles } = await fetchProfiles(usernames);
+      const profileMap = {};
+      profiles?.forEach(p => profileMap[p.username] = p);
+
+      const enriched = data.map(g => ({
+        ...g,
+        creatorAvatar: profileMap[g.creator]?.avatar || null,
+        targetAvatar: profileMap[g.target_player]?.avatar || null
+      }));
+
+      setGames(enriched);
+    } else {
+      setGames([]);
     }
     setLoading(false);
   };
@@ -29,7 +50,7 @@ const LobbyView = ({ onJoinDuel, onCancel }) => {
     // Auto-Refresh alle 5 Sekunden, damit man neue Spiele sieht
     const interval = setInterval(loadGames, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   return (
     <Background>
@@ -80,9 +101,9 @@ const LobbyView = ({ onJoinDuel, onCancel }) => {
             >
               {/* Infos (Avatar + Name + Betrag) */}
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-neutral-800 overflow-hidden border border-white/10 shadow-inner">
+                <div className="w-12 h-12 rounded-md bg-neutral-800 overflow-hidden border border-white/10 shadow-inner">
                   <img 
-                    src={`https://api.dicebear.com/9.x/avataaars/svg?seed=${game.creator}`} 
+                    src={game.creatorAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${game.creator}`} 
                     alt={game.creator} 
                     className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
                   />

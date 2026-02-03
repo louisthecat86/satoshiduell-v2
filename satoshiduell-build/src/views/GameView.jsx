@@ -3,6 +3,7 @@ import Background from '../components/ui/Background';
 import { Timer } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
+import { playSound, TickSound } from '../utils/sound';
 
 const GameView = ({ gameData, onGameEnd }) => {
   const { t } = useTranslation();
@@ -42,24 +43,48 @@ const GameView = ({ gameData, onGameEnd }) => {
     return () => clearInterval(timerRef.current);
   }, [startTime, hasSubmitted]);
 
+  // --- SOUND: Tick Sound Management ---
+  const tickRef = useRef(null);
+  useEffect(() => {
+    if (!tickRef.current) tickRef.current = new TickSound();
+    // stop tick on unmount
+    return () => tickRef.current && tickRef.current.stop();
+  }, []);
+
 
   const question = gameData.questions[currentQuestionIndex];
   const totalQuestions = gameData.questions.length;
 
   const handleAnswerClick = (index) => {
     if (selectedAnswer !== null || hasSubmitted) return; 
+
+    const muted = localStorage.getItem('satoshi_sound') === 'false';
+    // Click sound
+    playSound('click', muted);
+
     setSelectedAnswer(index);
 
     const isCorrect = index === question.c;
     if (isCorrect) {
       setScore((prev) => prev + 1);
+      // Play correct sound
+      playSound('correct', muted);
+    } else {
+      // Play wrong sound
+      playSound('wrong', muted);
     }
+
+    // Stop tick on answer
+    tickRef.current && tickRef.current.stop();
 
     // Kurze Pause vor der nächsten Frage
     setTimeout(() => {
       if (currentQuestionIndex < totalQuestions - 1) {
         setCurrentQuestionIndex((prev) => prev + 1);
         setSelectedAnswer(null);
+        // Start tick again for next question (if not muted)
+        const mutedAfter = localStorage.getItem('satoshi_sound') === 'false';
+        tickRef.current && tickRef.current.start(mutedAfter);
       } else {
         finishGame(isCorrect ? score + 1 : score);
       }
@@ -85,6 +110,20 @@ const GameView = ({ gameData, onGameEnd }) => {
 
   // Formatierung der Zeit (z.B. 12.5 s)
   const formattedTime = (elapsed / 1000).toFixed(1);
+
+  // Start/stop tick when question becomes active
+  useEffect(() => {
+    // If not answered yet, start tick
+    const muted = localStorage.getItem('satoshi_sound') === 'false';
+    if (selectedAnswer === null && !hasSubmitted) {
+      tickRef.current && tickRef.current.start(muted);
+    } else {
+      tickRef.current && tickRef.current.stop();
+    }
+
+    // stop on unmount or game end
+    return () => tickRef.current && tickRef.current.stop();
+  }, [currentQuestionIndex, selectedAnswer, hasSubmitted]);
 
   return (
     <Background>

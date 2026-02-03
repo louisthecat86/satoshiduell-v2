@@ -7,8 +7,7 @@ import { updateUserPin, uploadUserAvatar, fetchUserProfile } from '../services/s
 
 const SettingsView = ({ onBack }) => {
   const { t } = useTranslation();
-  const { user } = useAuth(); // User Objekt aus Auth
-  
+  const { user, refreshUser } = useAuth(); // User Objekt aus Auth  
   // State
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('satoshi_sound') !== 'false');
   const [notisEnabled, setNotisEnabled] = useState(() => localStorage.getItem('satoshi_notis') !== 'false');
@@ -60,8 +59,9 @@ const SettingsView = ({ onBack }) => {
           
           if (newUrl) {
               setAvatarUrl(newUrl);
-              // Optional: Ein Reload erzwingen oder User-Context updaten, damit Dashboard es sofort sieht
-              alert("Profilbild aktualisiert! (Ggf. App neu laden)");
+              // Aktualisiere den globalen User, damit Dashboard & andere Views das neue Bild sehen
+              if (refreshUser) await refreshUser();
+              alert("Profilbild aktualisiert!");
           } else {
               alert("Fehler beim Hochladen.");
           }
@@ -93,7 +93,7 @@ const SettingsView = ({ onBack }) => {
             <div className="flex flex-col items-center justify-center py-4">
                 <div className="relative group">
                     {/* Das Bild */}
-                    <div className="w-32 h-32 rounded-full border-4 border-orange-500 overflow-hidden shadow-[0_0_30px_rgba(249,115,22,0.3)] bg-neutral-900">
+                    <div className="w-32 h-32 rounded-md border-4 border-orange-500 overflow-hidden shadow-[0_0_30px_rgba(249,115,22,0.3)] bg-neutral-900">
                         {uploading ? (
                             <div className="w-full h-full flex items-center justify-center bg-black/50">
                                 <Loader2 className="animate-spin text-orange-500" size={32}/>

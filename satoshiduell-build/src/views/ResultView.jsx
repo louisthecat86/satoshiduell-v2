@@ -156,7 +156,7 @@ const ResultView = ({ gameData, onHome }) => {
 
     return (
       <div className={`flex flex-col items-center bg-[#161616] border ${borderColor} rounded-2xl p-4 transition-all w-full`}>
-        <div className="w-12 h-12 rounded-full bg-neutral-800 border border-white/10 overflow-hidden mb-2 shadow-inner">
+        <div className="w-12 h-12 rounded-md bg-neutral-800 border border-white/10 overflow-hidden mb-2 shadow-inner">
            <img src={`https://api.dicebear.com/9.x/avataaars/svg?seed=${name}`} alt={name} className="w-full h-full object-cover" />
         </div>
         <span className={`text-xs font-black uppercase tracking-wider mb-3 ${isMe ? 'text-white' : 'text-neutral-400'}`}>

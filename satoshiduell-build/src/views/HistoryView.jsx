@@ -4,8 +4,9 @@ import Button from '../components/ui/Button';
 import { ArrowLeft, History, Trophy, Frown, MinusCircle, RefreshCcw, Calendar, Zap } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 // WICHTIG: Profil laden für die Stats oben
-import { fetchUserHistory, fetchUserProfile } from '../services/supabase'; 
+import { fetchUserHistory, fetchUserProfile, fetchProfiles } from '../services/supabase'; 
 import { useTranslation } from '../hooks/useTranslation';
+import { playSound } from '../utils/sound';
 
 const HistoryView = ({ onBack, onSelectGame }) => {
   const { user } = useAuth();
@@ -28,7 +29,20 @@ const HistoryView = ({ onBack, onSelectGame }) => {
         const { data: history } = await fetchUserHistory(user.name);
         if (history) {
             const sorted = history.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            setGames(sorted);
+
+            // Lade alle beteiligten Profile (creator + challenger)
+            const usernames = Array.from(new Set(sorted.flatMap(g => [g.creator, g.challenger]).filter(Boolean)));
+            const { data: profiles } = await fetchProfiles(usernames);
+            const profileMap = {};
+            profiles?.forEach(p => profileMap[p.username] = p);
+
+            const enriched = sorted.map(g => ({
+              ...g,
+              creatorAvatar: profileMap[g.creator]?.avatar || null,
+              challengerAvatar: profileMap[g.challenger]?.avatar || null
+            }));
+
+            setGames(enriched);
         }
       }
       setLoading(false);
@@ -147,11 +161,13 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                    const date = new Date(game.created_at).toLocaleDateString();
                    const isCreator = game.creator === user.name;
                    const opponent = isCreator ? (game.challenger || "Niemand") : game.creator;
+                   // Avatar des Gegners (falls vorhanden)
+                   const opponentAvatar = isCreator ? (game.challengerAvatar || null) : (game.creatorAvatar || null);
 
                    return (
                        <button 
                          key={game.id} 
-                         onClick={() => onSelectGame(game)} 
+                         onClick={() => { const muted = localStorage.getItem('satoshi_sound') === 'false'; playSound('click', muted); onSelectGame(game); }} 
                          className={`w-full p-4 rounded-2xl border flex items-center justify-between transition-transform hover:scale-[1.01] ${details.colorClass}`}
                        >
                            <div className="flex items-center gap-4">
@@ -162,9 +178,12 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                                    <span className={`text-sm font-black uppercase ${details.textClass}`}>
                                        {details.title}
                                    </span>
-                                   <span className="text-xs text-neutral-500 font-bold">
-                                       vs {opponent}
-                                   </span>
+                                   <div className="flex items-center gap-2">
+                                       <div className="w-6 h-6 rounded-md overflow-hidden border border-white/5">
+                                           <img src={opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`} alt={opponent} className="w-full h-full object-cover" />
+                                       </div>
+                                       <span className="text-xs text-neutral-500 font-bold truncate max-w-[140px]">vs {opponent}</span>
+                                   </div>
                                </div>
                            </div>
                            <div className="flex flex-col items-end">

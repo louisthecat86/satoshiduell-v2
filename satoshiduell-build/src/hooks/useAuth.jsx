@@ -30,6 +30,8 @@ export const AuthProvider = ({ children }) => {
       if (existingUser) {
         console.log("✅ Login erfolgreich!");
         saveUser(existingUser);
+        // Nach dem Speichern direkt das Profile holen, damit z.B. das Avatar sichtbar ist
+        await refreshUser(existingUser.name);
         return true;
       }
 
@@ -48,6 +50,8 @@ export const AuthProvider = ({ children }) => {
       if (newUser) {
         console.log("🎉 Neuer Spieler registriert!");
         saveUser(newUser);
+        // Profile sollte beim Erstellen schon existieren (Upsert), trotzdem frisch laden
+        await refreshUser(newUser.name);
         return true;
       }
 
@@ -74,20 +78,23 @@ export const AuthProvider = ({ children }) => {
 
   // --- NEU: refreshUser Funktion ---
   // Lädt die aktuellen Daten (Avatar, etc.) aus der DB und aktualisiert den State
-  const refreshUser = async () => {
-    if (!user) return; 
+  // Akzeptiert optional einen username-Parameter, damit wir nach Login direkt updaten können
+  const refreshUser = async (usernameParam) => {
+    const usernameToFetch = usernameParam || user?.name;
+    if (!usernameToFetch) return; 
 
     try {
-      console.log("🔄 Refresh User Data...");
+      console.log("🔄 Refresh User Data for:", usernameToFetch);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('username', user.name) // Wir suchen nach 'username'
+        .eq('username', usernameToFetch) // Wir suchen nach 'username'
         .single();
 
       if (data) {
-        // Wir aktualisieren den lokalen User mit den frischen Daten aus der DB
-        const updatedUser = { ...user, ...data };
+        // Nutze aktuellen User-State falls vorhanden, sonst ein Minimalobjekt
+        const current = user || { name: usernameToFetch };
+        const updatedUser = { ...current, ...data };
         
         saveUser(updatedUser); // Speichert in State & LocalStorage
         console.log("✅ User refreshed:", updatedUser);

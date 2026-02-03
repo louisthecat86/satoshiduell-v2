@@ -4,7 +4,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import Background from '../components/ui/Background';
 import { 
   Plus, Trophy, Users, Swords, PlayCircle, History, 
-  Medal, Heart, LogOut, Settings, Volume2 
+  Medal, Heart, LogOut, Settings 
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { getOpenDuelCount, fetchUserGames, recalculateUserStats } from '../services/supabase';
@@ -122,7 +122,7 @@ const DashboardView = ({
         {/* HEADER (Avatar angepasst) */}
         <div className="flex justify-between items-center mb-6 bg-[#161616] p-3 rounded-2xl border border-white/5 shadow-md">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#222] border border-white/10 overflow-hidden relative">
+            <div className="w-12 h-12 rounded-md bg-[#222] border border-white/10 overflow-hidden relative">
                {/* HIER IST DIE ÄNDERUNG: WENN AVATAR EXISTIERT, NIMM IHN, SONST ROBOTER */}
                <img 
                   src={user?.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${user?.name}`} 
@@ -138,8 +138,6 @@ const DashboardView = ({
             </div>
           </div>
           <div className="flex gap-1">
-              <button className="p-2 text-neutral-500 hover:text-white transition-colors"><Volume2 size={18}/></button>
-              
               {/* Settings Button */}
               <button onClick={onOpenSettings} className="p-2 text-neutral-500 hover:text-white transition-colors">
                   <Settings size={18}/>

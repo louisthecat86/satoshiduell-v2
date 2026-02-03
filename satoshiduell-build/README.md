@@ -91,6 +91,12 @@ npm run build
 
 ## 🎯 Features
 
+### 🔊 Sounds
+
+Die App verwendet vier Sound-Dateien: `click.mp3`, `correct.mp3`, `wrong.mp3` und `tick.mp3`. Lege diese Dateien unverändert in den `public/` Ordner (z. B. `public/click.mp3`), damit sie unter `/click.mp3` erreichbar sind. Du kannst deine eigenen Dateien aus dem alten Projekt verwenden. Die Sounds lassen sich in den Einstellungen ein- bzw. ausschalten (Schalter "Sound").
+
+
+
 ### ✅ Implementiert
 - Modulare Architektur
 - Custom Hooks (Auth, Game, Payment, Duels)

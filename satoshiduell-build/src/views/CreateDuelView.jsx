@@ -58,7 +58,7 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
               <div className="mb-8 flex flex-col items-center animate-in fade-in zoom-in duration-300">
                   <div className="text-neutral-500 text-[10px] uppercase font-bold tracking-widest mb-2">GEGEN</div>
                   <div className="flex items-center gap-3 bg-white/5 px-6 py-3 rounded-2xl border border-white/10">
-                      <div className="w-10 h-10 rounded-full bg-neutral-800 overflow-hidden border border-white/20">
+                      <div className="w-10 h-10 rounded-md bg-neutral-800 overflow-hidden border border-white/20">
                           <img 
                              src={`https://api.dicebear.com/9.x/avataaars/svg?seed=${targetPlayer}`} 
                              alt={targetPlayer} 
