@@ -16,11 +16,13 @@ import LeaderboardView from './views/LeaderboardView';
 import ChallengesView from './views/ChallengesView';
 import DonateView from './views/DonateView'; // <--- NEU: Donate View importiert
 import SettingsView from './views/SettingsView';
+import AdminView from './views/AdminView';
 
-// --- SERVICES & HOOKS ---
-import { createDuelEntry, joinDuel, activateDuel, submitGameResult, supabase } from './services/supabase'; 
+// --- SERVICES & UTILS ---
+import { createDuelEntry, joinDuel, activateDuel, submitGameResult, supabase, fetchQuestions } from './services/supabase'; 
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink } from './services/lnbits'; 
+import { generateGameData } from './utils/game';
 
 export default function App() {
   const { user, logout } = useAuth();
@@ -84,13 +86,63 @@ export default function App() {
   const handleAmountConfirmed = async (amount, targetPlayer = null) => {
     setCreationAmount(amount);
     
-    const { data, error } = await createDuelEntry(user.name, amount, targetPlayer);
-    
-    if (data) {
-      setCurrentGame(data); 
-      navigate('payment'); 
-    } else {
-      console.error("Fehler beim Erstellen:", error);
+    try {
+      // Sprache aus localStorage holen
+      const userLanguage = localStorage.getItem('satoshi_lang') || 'de';
+      
+      // Fragen aus der Datenbank laden
+      const { data: questionsFromDB, error: questionsError } = await fetchQuestions(500);
+      
+      if (questionsError || !questionsFromDB || questionsFromDB.length === 0) {
+        console.warn("Keine Fragen in der Datenbank gefunden, nutze Fallback");
+        const { data, error } = await createDuelEntry(user.name, amount, targetPlayer, null);
+        if (data) {
+          setCurrentGame(data); 
+          navigate('payment'); 
+        } else {
+          console.error("Fehler beim Erstellen:", error);
+          alert("Fehler beim Erstellen des Spiels.");
+        }
+        return;
+      }
+      
+      // Normalize DB questions to ensure options is always an array
+      const normalizedQuestions = questionsFromDB.map(q => ({
+        ...q,
+        options: Array.isArray(q.options) ? q.options : (typeof q.options === 'string' ? JSON.parse(q.options) : [])
+      }));
+      
+      // Fragen randomisieren mit Sprache filtern
+      const randomizedQuestions = generateGameData(normalizedQuestions, 12, userLanguage);
+      
+      // Randomisierte Fragen in Spielformat umwandeln (mit Antwort-Shuffle)
+      // Format für GameView: { q: string, a: string[], c: number }
+      const gameQuestions = randomizedQuestions.map(rq => {
+        const options = Array.isArray(rq.questionData.options) 
+          ? rq.questionData.options 
+          : (typeof rq.questionData.options === 'string' ? JSON.parse(rq.questionData.options) : []);
+        
+        return {
+          q: rq.questionData.question,
+          a: rq.answerOrder.map(idx => options[idx]),  // Shuffle answers according to answerOrder
+          c: rq.correctPosition  // New position after shuffling
+        };
+      });
+      
+      console.log("🎮 Erstelle Spiel mit", gameQuestions.length, "randomisierten Fragen für Sprache", userLanguage);
+      
+      // Duell mit randomisierten Fragen erstellen
+      const { data, error } = await createDuelEntry(user.name, amount, targetPlayer, gameQuestions);
+      
+      if (data) {
+        setCurrentGame(data); 
+        navigate('payment'); 
+      } else {
+        console.error("Fehler beim Erstellen:", error);
+        alert("Fehler beim Erstellen des Spiels.");
+      }
+    } catch (err) {
+      console.error("Fehler beim Vorbereiten des Spiels:", err);
       alert("Fehler beim Erstellen des Spiels.");
     }
   };
@@ -106,6 +158,11 @@ export default function App() {
       // Öffne die separate Challenges-Ansicht (nicht die Lobby)
       setLobbyFilter(null);
       navigate('challenges');
+  };
+
+  const handleOpenAdmin = () => {
+    console.log("handleOpenAdmin called - navigating to admin");
+    navigate('admin');
   };
 
   const handleJoinSelectedDuel = (game) => {
@@ -374,7 +431,13 @@ export default function App() {
        {view === 'settings' && (
          <SettingsView 
             onBack={() => navigate('dashboard')}
+            onOpenAdmin={handleOpenAdmin}
          />
+       )}
+
+       {/* 13. ADMIN VIEW */}
+       {view === 'admin' && (
+         <AdminView onBack={() => navigate('dashboard')} />
        )}
        
     </div>

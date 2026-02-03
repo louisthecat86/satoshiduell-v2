@@ -7,8 +7,11 @@ import { APP_CONFIG } from '../constants/config';
 
 /**
  * Custom Hook für Game/Quiz Logik
+ * @param {Array} questions - Array von Fragen aus der Datenbank
+ * @param {boolean} isMuted - Sound aktiviert/deaktiviert
+ * @param {string} language - Sprache des Spielers ('de', 'en', 'es')
  */
-export const useGame = (questions, isMuted = false) => {
+export const useGame = (questions, isMuted = false, language = 'de') => {
   const [gameData, setGameData] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [score, setScore] = useState(0);
@@ -76,7 +79,7 @@ export const useGame = (questions, isMuted = false) => {
    * Startet ein neues Spiel
    */
   const startGame = () => {
-    const newGameData = generateGameData(questions, APP_CONFIG.questionsPerGame);
+    const newGameData = generateGameData(questions, APP_CONFIG.questionsPerGame, language);
     setGameData(newGameData);
     setCurrentQuestion(0);
     setScore(0);

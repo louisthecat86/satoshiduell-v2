@@ -2,51 +2,57 @@
 
 /**
  * Generiert Spieldaten mit zufälligen, nicht-wiederholenden Fragen
- * @param {Array} questionsSource - Array aller verfügbaren Fragen
- * @param {number} count - Anzahl der zu generierenden Fragen
+ * @param {Array} questionsSource - Array aller verfügbaren Fragen (aus DB)
+ * @param {number} count - Anzahl der zu generierenden Fragen (default 12)
+ * @param {string} language - Sprache des Spielers ('de', 'en', 'es')
  * @returns {Array} Array von Spielfragen mit gemischten Antworten
  */
-export const generateGameData = (questionsSource, count = 5) => {
+export const generateGameData = (questionsSource, count = 12, language = 'de') => {
   if (!questionsSource || questionsSource.length === 0) return [];
 
-  // Lade bereits gespielte Fragen aus localStorage
-  let playedIds = JSON.parse(localStorage.getItem('played_questions') || '[]');
+  // WICHTIG: Filtere Fragen nach Sprache des Spielers
+  const languageFilteredQuestions = questionsSource.filter(q => q.language === language);
   
-  // Finde verfügbare Fragen (die noch nicht gespielt wurden)
-  let availableIndices = questionsSource
-    .map((_, i) => i)
-    .filter(id => !playedIds.includes(id));
-
-  // Wenn weniger als 5 Fragen verfügbar sind, reset den Verlauf
-  if (availableIndices.length < count) {
-    playedIds = [];
-    availableIndices = questionsSource.map((_, i) => i);
+  if (languageFilteredQuestions.length === 0) {
+    console.warn(`Keine Fragen für Sprache "${language}" gefunden. Nutze alle verfügbaren Fragen.`);
+    return generateGameData(questionsSource, count, 'de'); // Fallback auf Deutsch
   }
 
-  // Fisher-Yates Shuffle
-  for (let i = availableIndices.length - 1; i > 0; i--) {
+  // Wenn weniger Fragen als angefordert existieren, nutze alle
+  const targetCount = Math.min(count, languageFilteredQuestions.length);
+
+  // Fisher-Yates Shuffle: Selektiere zufällig ohne Duplikate
+  const indices = languageFilteredQuestions.map((_, i) => i);
+  
+  for (let i = indices.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [availableIndices[i], availableIndices[j]] = [availableIndices[j], availableIndices[i]];
+    [indices[i], indices[j]] = [indices[j], indices[i]];
   }
 
-  // Wähle die ersten 'count' Fragen
-  const selectedIndices = availableIndices.slice(0, count);
-
-  // Speichere die gespielten Fragen
-  const newHistory = [...playedIds, ...selectedIndices];
-  localStorage.setItem('played_questions', JSON.stringify(newHistory));
+  const selectedIndices = indices.slice(0, targetCount);
 
   // Generiere Spieldaten mit gemischten Antwort-Optionen
   return selectedIndices.map(id => {
-    const order = [0, 1, 2, 3];
+    const question = languageFilteredQuestions[id];
     
-    // Shuffle der Antwort-Reihenfolge
-    for (let i = order.length - 1; i > 0; i--) {
+    // Erstelle ein Array mit den Antwort-Indizes [0, 1, 2, 3]
+    const answerOrder = [0, 1, 2, 3];
+    
+    // Shuffle: Die richtige Antwort landet an zufälliger Position
+    for (let i = answerOrder.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
+      [answerOrder[i], answerOrder[j]] = [answerOrder[j], answerOrder[i]];
     }
 
-    return { id, order };
+    // Finde die neue Position der richtigen Antwort
+    const correctPosition = answerOrder.indexOf(question.correct);
+
+    return {
+      id, // Index in languageFilteredQuestions
+      questionData: question, // Die komplette Frage aus DB
+      answerOrder, // [z.B. 2, 0, 3, 1] - Reihenfolge der Antworten
+      correctPosition // Neue Position der richtigen Antwort nach dem Shuffle
+    };
   });
 };
 

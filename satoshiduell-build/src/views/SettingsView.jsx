@@ -3,9 +3,9 @@ import Background from '../components/ui/Background';
 import { ArrowLeft, Bell, Volume2, Lock, Save, Loader2, CheckCircle2, Camera, User } from 'lucide-react'; // Camera & User Icons
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
-import { updateUserPin, uploadUserAvatar, fetchUserProfile } from '../services/supabase'; // fetchUserProfile importieren (oder getUser)
+import { updateUserPin, uploadUserAvatar, fetchUserProfile, createSubmission } from '../services/supabase'; // fetchUserProfile importieren (oder getUser)
 
-const SettingsView = ({ onBack }) => {
+const SettingsView = ({ onBack, onOpenAdmin }) => {
   const { t } = useTranslation();
   const { user, refreshUser } = useAuth(); // User Objekt aus Auth  
   // State
@@ -73,18 +73,61 @@ const SettingsView = ({ onBack }) => {
       }
   };
 
+  // --- QUESTION SUBMIT FORM ---
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [qText, setQText] = useState('');
+  const [opts, setOpts] = useState(['', '', '', '']);
+  const [correctIdx, setCorrectIdx] = useState(0);
+  const [submittingQ, setSubmittingQ] = useState(false);
+
+  const handleOptionChange = (idx, value) => {
+    const next = [...opts]; next[idx] = value; setOpts(next);
+  };
+
+  const handleSubmitQuestion = async () => {
+    if (!qText || opts.some(o => !o)) return alert('Bitte Frage und alle 4 Antworten ausfüllen.');
+    setSubmittingQ(true);
+    try {
+      const { data, error } = await createSubmission({ submitter: user.name, question: qText, options: opts, correct: correctIdx });
+      if (error) throw error;
+      alert('Frage eingereicht!');
+      setShowSubmitModal(false);
+      setQText(''); setOpts(['', '', '', '']); setCorrectIdx(0);
+    } catch (e) {
+      console.error(e); alert('Fehler beim Abschicken');
+    } finally { setSubmittingQ(false); }
+  };
+
   return (
     <Background>
       <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* HEADER */}
-        <div className="flex items-center gap-4 mb-6 pt-4">
-            <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
-              <ArrowLeft className="text-white" size={20}/>
-            </button>
-            <h2 className="text-xl font-black text-white uppercase tracking-widest">
-               {t('tile_settings')}
-            </h2>
+        <div className="flex items-center justify-between gap-4 mb-6 pt-4">
+            <div className="flex items-center gap-4">
+              <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
+                <ArrowLeft className="text-white" size={20}/>
+              </button>
+              <h2 className="text-xl font-black text-white uppercase tracking-widest">
+                 {t('tile_settings')}
+              </h2>
+            </div>
+            {user?.is_admin && (
+              <button 
+                onClick={() => {
+                  console.log("Admin Button clicked!");
+                  if (onOpenAdmin) {
+                    onOpenAdmin();
+                  } else {
+                    alert("Admin-Funktion nicht verfügbar");
+                  }
+                }} 
+                className="bg-purple-500 hover:bg-purple-600 active:bg-purple-700 px-3 py-1 rounded-lg font-bold text-black text-sm transition-colors cursor-pointer"
+                title="Admin-Bereich"
+              >
+                ⚙️ Admin
+              </button>
+            )}
         </div>
 
         <div className="flex flex-col gap-6">
@@ -166,11 +209,40 @@ const SettingsView = ({ onBack }) => {
                 </div>
             </div>
             
+            {/* SUBMIT QUESTION */}
+            {!user?.is_admin && (
+              <div className="text-center">
+                <button onClick={() => setShowSubmitModal(true)} className="bg-white text-black px-4 py-2 rounded-xl font-bold mt-4">Frage einreichen</button>
+              </div>
+            )}
+
             {/* Info Footer */}
             <div className="text-center pb-6">
-                <p className="text-neutral-600 text-[10px] uppercase font-bold tracking-widest">Satoshi Duell v0.8</p>
+                <p className="text-neutral-600 text-[10px] uppercase font-bold tracking-widest mt-4">Satoshi Duell v0.8</p>
                 <p className="text-neutral-700 text-[10px]">{user?.name}</p>
             </div>
+
+            {/* SUBMIT MODAL */}
+            {showSubmitModal && (
+              <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                <div className="bg-[#111] p-6 rounded-2xl w-full max-w-xl">
+                  <h3 className="text-white font-black mb-4">Frage einreichen</h3>
+                  <div className="flex flex-col gap-3">
+                    <textarea value={qText} onChange={(e) => setQText(e.target.value)} rows={3} placeholder="Frage" className="w-full bg-black/20 p-3 rounded" />
+                    {opts.map((o, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input type="radio" checked={correctIdx === i} onChange={() => setCorrectIdx(i)} />
+                        <input value={o} onChange={(e) => handleOptionChange(i, e.target.value)} placeholder={`Antwort ${i+1}`} className="flex-1 bg-black/20 p-3 rounded" />
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-2 justify-end">
+                      <button onClick={() => setShowSubmitModal(false)} className="px-4 py-2 rounded-xl bg-neutral-700">Abbrechen</button>
+                      <button onClick={handleSubmitQuestion} disabled={submittingQ} className="px-4 py-2 rounded-xl bg-orange-500 text-black">{submittingQ ? 'Sende...' : 'Absenden'}</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
         </div>
       </div>
     </Background>

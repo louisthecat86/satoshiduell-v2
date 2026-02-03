@@ -91,10 +91,11 @@ export const verifyLogin = async (name, pin) => {
 
 // A. Neues Duell anlegen (Status: pending_payment)
 // WICHTIG: Nimmt jetzt targetPlayer (optional) entgegen
-export const createDuelEntry = async (creatorName, amount, targetPlayer = null) => {
+export const createDuelEntry = async (creatorName, amount, targetPlayer = null, questionsData = null) => {
   console.log(`📝 Erstelle Duell Eintrag für ${creatorName} mit ${amount} Sats. Target: ${targetPlayer || 'Open'}`);
 
-  const dummyQuestions = [
+  // Falls keine Fragen mitgebracht wurden, nutze Fallback
+  let questions = questionsData || [
       { q: "Was ist Bitcoin?", a: ["Digitales Gold", "Ein Stein", "Essen", "Auto"], c: 0 },
       { q: "Wer ist Satoshi?", a: ["Niemand", "Craig Wright", "Unbekannt", "Elon Musk"], c: 2 },
       { q: "Wann war der Genesis Block?", a: ["2008", "2009", "2010", "2011"], c: 1 },
@@ -109,7 +110,7 @@ export const createDuelEntry = async (creatorName, amount, targetPlayer = null) 
       status: 'pending_payment', 
       amount: parseInt(amount),  
       current_pot: 0,
-      questions: dummyQuestions,
+      questions: questions,
       target_player: targetPlayer // <--- NEU: Speichert den Gegner (oder null)
     }])
     .select()
@@ -450,6 +451,83 @@ export const fetchProfiles = async (usernames) => {
         .select('*')
         .in('username', usernames);
     return { data, error };
+};
+
+// ---------------------------
+// QUESTIONS & SUBMISSIONS
+// ---------------------------
+export const fetchQuestions = async (limit = 500) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  return { data, error };
+};
+
+export const createQuestion = async ({ language = 'de', question, options = [], correct = 0, tags = [] }) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .insert([{ language, question, options, correct, tags }])
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const updateQuestion = async (id, updateData) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteQuestion = async (id) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .delete()
+    .eq('id', id);
+  return { data, error };
+};
+
+export const fetchSubmissions = async (status = 'pending') => {
+  const { data, error } = await supabase
+    .from('question_submissions')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .eq('status', status);
+  return { data, error };
+};
+
+export const createSubmission = async ({ submitter, language = 'de', question, options = [], correct = 0, comment = '' }) => {
+  const { data, error } = await supabase
+    .from('question_submissions')
+    .insert([{ submitter, language, question, options, correct, comment }])
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const updateSubmissionStatus = async (id, status) => {
+  const { data, error } = await supabase
+    .from('question_submissions')
+    .update({ status, processed_at: new Date() })
+    .eq('id', id)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// ADMIN: Fetch all duels/games for overview
+export const fetchAllDuels = async (limit = 100) => {
+  const { data, error } = await supabase
+    .from('duels')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  return { data, error };
 };
 
 // --- USER & SETTINGS ---
