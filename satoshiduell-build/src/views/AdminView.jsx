@@ -163,14 +163,31 @@ const AdminView = ({ onBack }) => {
         // Erkenne welches Format verwendet wird
         const useNewFormat = headers.includes('option1') && headers.includes('option2');
         const useOldFormat = headers.includes('options') && headers.includes('correct');
-        
+
+        // SPEZIAL: Erkenne language-specific Spalten (question_de, option_de_1 ...)
+        const langs = ['de', 'en', 'es'];
+        const langColumnGroups = {}; // { de: { question: idx, options: [idx..], activeIdx, verifiedIdx } }
+        langs.forEach(lang => {
+          const qKey = rawHeaders.findIndex(h => h.toLowerCase() === `question_${lang}` || h.toLowerCase().startsWith(`question_${lang}`));
+          const optKeys = [];
+          for (let k = 1; k <= 4; k++) {
+            const name1 = `option_${lang}_${k}`;
+            const name2 = `option_${lang}_${k}`;
+            const idx = rawHeaders.findIndex(h => h.toLowerCase() === name1 || h.toLowerCase() === name2 || h.toLowerCase().includes(`option-${lang}-${k}`));
+            if (idx >= 0) optKeys.push(idx);
+          }
+          if (qKey >= 0 && optKeys.length === 4) {
+            langColumnGroups[lang] = { question: qKey, options: optKeys };
+          }
+        });
+
         // Versuche automatisch Spalten zu mappen wenn weder neues noch altes Format passt
         let columnMap = null;
-        if (!useNewFormat && !useOldFormat) {
+        if (!useNewFormat && !useOldFormat && Object.keys(langColumnGroups).length === 0) {
           // Auto-Detect: Suche nach Spalten mit gemeinsamen Mustern
           const langCol = headers.findIndex(h => h.includes('language') || h.includes('sprache') || h.includes('lang'));
           const qCol = headers.findIndex(h => h.includes('question') || h.includes('frage') || h.includes('question_text'));
-          
+
           // Suche nach Optionen - können unterschiedlich benannt sein
           const optionCols = [];
           headers.forEach((h, idx) => {
@@ -178,9 +195,9 @@ const AdminView = ({ onBack }) => {
               optionCols.push(idx);
             }
           });
-          
-          const correctCol = headers.findIndex(h => h.includes('correct') || h.includes('richtig') || h.includes('answer') || h.includes('correct_answer'));
-          
+
+          const correctCol = headers.findIndex(h => h.includes('correct') || h.includes('richtig') || h.includes('answer') || h.includes('correct_answer') || h.includes('correct_index'));
+
           if (qCol >= 0 && optionCols.length >= 4) {
             columnMap = {
               language: langCol >= 0 ? langCol : null,
@@ -192,13 +209,18 @@ const AdminView = ({ onBack }) => {
           }
         }
 
-        if (!useNewFormat && !useOldFormat && !columnMap) {
-          return alert(`⚠️ Spalten nicht erkannt!\n\nErkannte: ${rawHeaders.join(', ')}\n\nErwartet: language, question, option1, option2, option3, option4, correct_answer`);
+        if (!useNewFormat && !useOldFormat && Object.keys(langColumnGroups).length === 0 && !columnMap) {
+          return alert(`⚠️ Spalten nicht erkannt!\n\nErkannte: ${rawHeaders.join(', ')}\n\nErwartet: language, question, option1, option2, option3, option4, correct_answer\nOder language-specific Spalten wie question_de, option_de_1`);
         }
 
         setActionInProgress('importing');
         let imported = 0;
         let failed = 0;
+
+        // Detect some optional control columns
+        const correctIndexCol = rawHeaders.findIndex(h => h.toLowerCase().includes('correct_index') || h.toLowerCase().includes('correct_answer') || h.toLowerCase().includes('correct'));
+        const isActiveCol = rawHeaders.findIndex(h => h.toLowerCase().includes('is_active'));
+        const isVerifiedCol = rawHeaders.findIndex(h => h.toLowerCase().includes('is_verified'));
 
         for (let i = 1; i < lines.length; i++) {
           // CSV Parser: Respektiere Anführungszeichen und Tabs
@@ -219,57 +241,103 @@ const AdminView = ({ onBack }) => {
           values.push(current.trim().replace(/^"|"$/g, ''));
 
           try {
-            let language = 'de';
-            let question = '';
-            let options = [];
-            let correct = 0;
+            // Skip empty rows
+            if (values.every(v => !v)) continue;
 
-            if (useNewFormat) {
-              const row = {};
-              headers.forEach((h, idx) => { row[h] = values[idx]; });
-              language = row.language || 'de';
-              question = row.question;
-              options = [row.option1, row.option2, row.option3, row.option4];
-              correct = (parseInt(row.correct_answer) || 1) - 1;
-            } else if (useOldFormat) {
-              const row = {};
-              headers.forEach((h, idx) => { row[h] = values[idx]; });
-              language = row.language || 'de';
-              question = row.question;
-              options = JSON.parse(row.options);
-              correct = parseInt(row.correct);
-            } else if (columnMap) {
-              // Auto-mapped format
-              language = columnMap.language !== null ? values[columnMap.language] || 'de' : 'de';
-              question = values[columnMap.question];
-              options = columnMap.options.map(idx => values[idx]);
-              
-              // Parse correct answer - könnte 1-4 oder 0-3 sein
-              const correctVal = parseInt(values[columnMap.correct]);
-              correct = correctVal > 1 ? correctVal - 1 : correctVal;
+            // If is_verified present and set to 0/false, skip this row
+            if (isVerifiedCol >= 0) {
+              const v = (values[isVerifiedCol] || '').toLowerCase();
+              if (v === '0' || v === 'false' || v === 'no') {
+                failed++;
+                continue;
+              }
             }
 
-            if (!question || !options.length || options.some(o => !o)) {
-              failed++;
-              continue;
+            // If language-specific groups detected, create one question per language present
+            if (Object.keys(langColumnGroups).length > 0) {
+              for (const lang of Object.keys(langColumnGroups)) {
+                const group = langColumnGroups[lang];
+                const question = values[group.question];
+                const options = group.options.map(idx => values[idx]);
+
+                if (!question || options.some(o => !o)) {
+                  // Skip this language entry if incomplete
+                  continue;
+                }
+
+                // Determine correct index (global or per-row)
+                let correct = 0;
+                if (correctIndexCol >= 0) {
+                  const cv = parseInt(values[correctIndexCol]);
+                  if (isNaN(cv)) { failed++; continue; }
+                  correct = cv > 1 ? cv - 1 : cv;
+                } else {
+                  // fallback: assume first option is correct if not provided
+                  correct = 0;
+                }
+
+                await createQuestion({
+                  language: lang,
+                  question,
+                  options: options.slice(0,4),
+                  correct
+                });
+                imported++;
+              }
+            } else {
+              // legacy / new / auto-mapped handling
+              let language = 'de';
+              let question = '';
+              let options = [];
+              let correct = 0;
+
+              if (useNewFormat) {
+                const row = {};
+                headers.forEach((h, idx) => { row[h] = values[idx]; });
+                language = row.language || 'de';
+                question = row.question;
+                options = [row.option1, row.option2, row.option3, row.option4];
+                correct = (parseInt(row.correct_answer) || 1) - 1;
+              } else if (useOldFormat) {
+                const row = {};
+                headers.forEach((h, idx) => { row[h] = values[idx]; });
+                language = row.language || 'de';
+                question = row.question;
+                options = JSON.parse(row.options);
+                correct = parseInt(row.correct);
+              } else if (columnMap) {
+                // Auto-mapped format
+                language = columnMap.language !== null ? values[columnMap.language] || 'de' : 'de';
+                question = values[columnMap.question];
+                options = columnMap.options.map(idx => values[idx]);
+
+                // Parse correct answer - könnte 1-4 oder 0-3 sein
+                const correctVal = parseInt(values[columnMap.correct]);
+                correct = correctVal > 1 ? correctVal - 1 : correctVal;
+              }
+
+              if (!question || !options.length || options.some(o => !o)) {
+                failed++;
+                continue;
+              }
+
+              // Ensure 4 options
+              while (options.length < 4) options.push('');
+              options = options.slice(0, 4);
+
+              if (isNaN(correct) || correct < 0 || correct > 3) {
+                failed++;
+                continue;
+              }
+
+              await createQuestion({
+                language: language.substring(0, 2).toLowerCase(),
+                question,
+                options,
+                correct
+              });
+              imported++;
             }
-
-            // Ensure 4 options
-            while (options.length < 4) options.push('');
-            options = options.slice(0, 4);
-
-            if (isNaN(correct) || correct < 0 || correct > 3) {
-              failed++;
-              continue;
-            }
-
-            await createQuestion({
-              language: language.substring(0, 2).toLowerCase(),
-              question,
-              options,
-              correct
-            });
-            imported++;
           } catch (err) {
             console.error('Import-Fehler in Reihe', i, ':', err);
             failed++;
