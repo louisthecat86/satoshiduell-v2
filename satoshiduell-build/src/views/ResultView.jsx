@@ -21,9 +21,9 @@ const ResultView = ({ gameData, onHome }) => {
 
   const isCreator = user.name === gameData.creator;
 
-  // Avatar state (wird aus profiles geladen)
-  const [creatorAvatar, setCreatorAvatar] = useState(null);
-  const [challengerAvatar, setChallengerAvatar] = useState(null);
+  // Avatar state (verwende vorhandene Avatare aus gameData falls gesetzt, sonst null)
+  const [creatorAvatar, setCreatorAvatar] = useState(gameData.creatorAvatar || null);
+  const [challengerAvatar, setChallengerAvatar] = useState(gameData.challengerAvatar || null);
 
   const myData = {
     name: isCreator ? gameData.creator : (gameData.challenger || "Gegner"),
@@ -39,19 +39,24 @@ const ResultView = ({ gameData, onHome }) => {
     avatar: isCreator ? challengerAvatar : creatorAvatar
   };
 
-  // Lade Avatare für Creator & Challenger (falls vorhanden)
+  // Lade Avatare für Creator & Challenger (falls vorhanden und noch nicht gesetzt)
   useEffect(() => {
     const loadAvatars = async () => {
       const usernames = [gameData.creator, gameData.challenger].filter(Boolean);
       if (usernames.length === 0) return;
+
+      // Falls beide Avatare bereits gesetzt sind, müssen wir nichts tun
+      if ((creatorAvatar || gameData.creatorAvatar) && (challengerAvatar || gameData.challengerAvatar)) return;
+
       const { data: profiles } = await fetchProfiles(usernames);
       const map = {};
       profiles?.forEach(p => map[p.username] = p.avatar || null);
-      setCreatorAvatar(map[gameData.creator] || null);
-      setChallengerAvatar(map[gameData.challenger] || null);
+
+      if (!creatorAvatar) setCreatorAvatar(map[gameData.creator] || null);
+      if (!challengerAvatar) setChallengerAvatar(map[gameData.challenger] || null);
     };
     loadAvatars();
-  }, [gameData]);
+  }, [gameData, creatorAvatar, challengerAvatar]);
 
   // --- 0. INITIAL CHECK (REFUND) ---
   useEffect(() => {
@@ -191,7 +196,12 @@ const ResultView = ({ gameData, onHome }) => {
             </div>
             <div className="flex flex-col items-center bg-black/30 rounded-lg p-2">
                 <Clock size={14} className="text-blue-500 mb-1" />
-                <span className="text-lg font-black text-white leading-none">{time !== null ? (time / 1000).toFixed(1) : '-'} <span className="text-[8px] text-neutral-500">s</span></span>
+                <span className="text-lg font-black text-white leading-none">
+                  <span className="inline-flex items-baseline gap-1">
+                    {time !== null ? (time / 1000).toFixed(1) : '-'}
+                    <span className="text-[8px] text-neutral-500 self-baseline">s</span>
+                  </span>
+                </span>
             </div>
         </div>
       </div>
@@ -315,11 +325,11 @@ const ResultView = ({ gameData, onHome }) => {
 
           {/* STATS BOARD */}
           <div className="w-full flex items-center justify-center gap-2 mb-8 relative">
-              <div className="flex-1 max-w-[160px]"><PlayerStatCard name={myData.name} score={myData.score} time={myData.time} isMe={true} winStatus={status} /></div>
+              <div className="flex-1 max-w-[160px]"><PlayerStatCard name={myData.name} score={myData.score} time={myData.time} isMe={true} winStatus={status} avatar={myData.avatar} /></div>
               <div className="flex flex-col items-center justify-center z-10 -mx-2">
                  <div className="w-8 h-8 rounded-full bg-[#222] border-2 border-[#333] flex items-center justify-center"><span className="text-[8px] font-black text-neutral-500">VS</span></div>
               </div>
-              <div className="flex-1 max-w-[160px]"><PlayerStatCard name={opData.name} score={opData.score} time={opData.time} isMe={false} winStatus={status === 'win' ? 'lose' : (status === 'lose' ? 'win' : 'draw')} /></div>
+              <div className="flex-1 max-w-[160px]"><PlayerStatCard name={opData.name} score={opData.score} time={opData.time} isMe={false} winStatus={status === 'win' ? 'lose' : (status === 'lose' ? 'win' : 'draw')} avatar={opData.avatar} /></div>
           </div>
 
           {/* GEWINN BEREICH (MIT WALLET BUTTON) */}

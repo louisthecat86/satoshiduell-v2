@@ -13,6 +13,7 @@ import ActiveGamesView from './views/ActiveGamesView';
 import HistoryView from './views/HistoryView';
 import BadgesView from './views/BadgesView';
 import LeaderboardView from './views/LeaderboardView'; 
+import ChallengesView from './views/ChallengesView';
 import DonateView from './views/DonateView'; // <--- NEU: Donate View importiert
 import SettingsView from './views/SettingsView';
 
@@ -102,8 +103,9 @@ export default function App() {
 
   const handleOpenChallengesList = () => {
       setIsJoining(true);
-      setLobbyFilter('challenges');
-      navigate('lobby'); 
+      // Öffne die separate Challenges-Ansicht (nicht die Lobby)
+      setLobbyFilter(null);
+      navigate('challenges');
   };
 
   const handleJoinSelectedDuel = (game) => {
@@ -251,7 +253,17 @@ export default function App() {
               setLobbyFilter(null);
               navigate('dashboard');
             }}
-            showChallengesOnly={lobbyFilter === 'challenges'}
+         />
+       )}
+
+       {/* 3b. CHALLENGES (separate view) */}
+       {view === 'challenges' && (
+         <ChallengesView
+            onAcceptChallenge={handleJoinSelectedDuel}
+            onCancel={() => {
+              setIsJoining(false);
+              navigate('dashboard');
+            }}
          />
        )}
 
