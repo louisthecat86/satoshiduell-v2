@@ -234,6 +234,31 @@ export const fetchUserGames = async (playerName) => {
     .order('created_at', { ascending: false })
     .limit(50);
 
+  if (error || !data) return { data, error };
+
+  // Enrich games with avatars from profiles (creator & challenger)
+  try {
+    const usernames = Array.from(new Set(data.flatMap(g => [g.creator, g.challenger]).filter(Boolean)));
+    if (usernames.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('username, avatar')
+        .in('username', usernames);
+      const profileMap = {};
+      profiles?.forEach(p => profileMap[p.username] = p.avatar || null);
+
+      const enriched = data.map(g => ({
+        ...g,
+        creatorAvatar: profileMap[g.creator] || null,
+        challengerAvatar: profileMap[g.challenger] || null
+      }));
+
+      return { data: enriched, error: null };
+    }
+  } catch (e) {
+    console.error('Error enriching games with avatars:', e);
+  }
+
   return { data, error };
 };
 

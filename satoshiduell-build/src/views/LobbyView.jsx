@@ -6,7 +6,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { fetchOpenDuels, fetchProfiles } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
 
-const LobbyView = ({ onJoinDuel, onCancel }) => {
+const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
   
@@ -38,7 +38,13 @@ const LobbyView = ({ onJoinDuel, onCancel }) => {
         targetAvatar: profileMap[g.target_player]?.avatar || null
       }));
 
-      setGames(enriched);
+      // Falls nur Challenges angezeigt werden sollen, filtere auf target_player === mein Benutzername (case-insensitive)
+      // Ansonsten: nur PUBLIC GAMES anzeigen (target_player === null)
+      const filtered = showChallengesOnly
+        ? enriched.filter(g => g.target_player && g.target_player.toLowerCase() === user.name.toLowerCase())
+        : enriched.filter(g => !g.target_player || g.target_player === null);
+
+      setGames(filtered);
     } else {
       setGames([]);
     }
@@ -62,7 +68,7 @@ const LobbyView = ({ onJoinDuel, onCancel }) => {
             <ArrowLeft size={24} />
           </button>
           <h2 className="text-xl font-black text-white italic uppercase tracking-wider flex items-center gap-2">
-            <Users className="text-orange-500" size={20} /> {t('tile_lobby')}
+            {showChallengesOnly ? <Swords className="text-purple-500" size={20} /> : <Users className="text-orange-500" size={20} />} {showChallengesOnly ? t('tile_challenges') : t('tile_lobby')}
           </h2>
           <button 
             onClick={loadGames} 
@@ -89,7 +95,7 @@ const LobbyView = ({ onJoinDuel, onCancel }) => {
               <div className="bg-neutral-900 p-6 rounded-full mb-4">
                 <Swords size={48} className="opacity-20" />
               </div>
-              <p className="text-sm font-bold uppercase tracking-widest">{t('no_challenges')}</p>
+              <p className="text-sm font-bold uppercase tracking-widest">{showChallengesOnly ? t('no_challenges') : 'Keine offenen Duelle'}</p>
             </div>
           )}
 

@@ -166,32 +166,7 @@ const DashboardView = ({
 
           <DashboardCard title={t('tile_lobby')} icon={Users} colorClass="text-orange-500" onClick={onPlay} badgeCount={lobbyCount} />
           
-          <button 
-            onClick={onOpenChallenges}
-            className={`relative border rounded-2xl p-4 h-32 flex flex-col items-center justify-center transition-all overflow-hidden group text-left shadow-lg
-              ${incomingChallenges.length > 0 
-                ? 'bg-[#1a1120] border-purple-500 hover:bg-[#251830] hover:scale-[1.02]' 
-                : 'bg-[#161616] hover:bg-[#1f1f1f] border-white/5'}
-            `}
-          >
-              {incomingChallenges.length > 0 ? (
-                <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
-                   <span className="text-4xl font-black text-white mb-1 drop-shadow-lg">
-                     {incomingChallenges.length}
-                   </span>
-                   <span className="text-[9px] font-bold text-purple-400 uppercase tracking-widest">
-                     Anfragen
-                   </span>
-                </div>
-              ) : (
-                <>
-                   <Swords size={32} className="mb-3 text-purple-500/50 transition-transform group-hover:scale-110 group-hover:text-purple-500" />
-                   <span className="text-xs font-black uppercase tracking-widest text-purple-500/50 group-hover:text-purple-500 transition-colors">
-                      {t('tile_challenges')}
-                   </span>
-                </>
-              )}
-          </button>
+          <DashboardCard title={t('tile_challenges')} icon={Swords} colorClass="text-purple-500" onClick={onOpenChallenges} badgeCount={incomingChallenges.length} badgeColor="bg-purple-500" />
           
           <DashboardCard title={t('tile_active_games')} icon={PlayCircle} colorClass="text-green-500" onClick={onOpenActiveGames} badgeCount={actionCount} badgeColor="bg-green-500" />
           <DashboardCard title={t('tile_history')} icon={History} colorClass="text-blue-500" onClick={onOpenHistory} />

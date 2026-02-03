@@ -33,6 +33,8 @@ export default function App() {
   const [currentGame, setCurrentGame] = useState(null); 
   const [creationAmount, setCreationAmount] = useState(0); 
   const [isJoining, setIsJoining] = useState(false); 
+  // Filter für Lobby (null = alle, 'challenges' = nur Challenges)
+  const [lobbyFilter, setLobbyFilter] = useState(null);
   
   // State für den Gegner
   const [challengeTarget, setChallengeTarget] = useState(null);
@@ -94,11 +96,13 @@ export default function App() {
 
   const handleOpenLobby = () => {
     setIsJoining(true); 
+    setLobbyFilter(null);
     navigate('lobby');
   };
 
   const handleOpenChallengesList = () => {
       setIsJoining(true);
+      setLobbyFilter('challenges');
       navigate('lobby'); 
   };
 
@@ -244,8 +248,10 @@ export default function App() {
             onJoinDuel={handleJoinSelectedDuel}
             onCancel={() => {
               setIsJoining(false);
+              setLobbyFilter(null);
               navigate('dashboard');
             }}
+            showChallengesOnly={lobbyFilter === 'challenges'}
          />
        )}
 

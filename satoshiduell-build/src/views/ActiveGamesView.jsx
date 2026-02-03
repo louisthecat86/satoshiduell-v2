@@ -97,20 +97,29 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                  <Trophy size={12}/> Gewinne abholen! ({claimableGames.length})
                </h3>
                <div className="space-y-3">
-                 {claimableGames.map(game => (
+                 {claimableGames.map(game => {
+                   const opponent = game.creator === user.name ? (game.challenger || 'Gegner') : game.creator;
+                   const opponentAvatar = game.creator === user.name ? game.challengerAvatar : game.creatorAvatar;
+                   const avatarSrc = opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`;
+                   return (
                    <button 
                      key={game.id}
                      onClick={() => onSelectGame(game)} 
                      className="w-full bg-gradient-to-r from-yellow-500 to-amber-600 rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-yellow-900/20 hover:scale-[1.02] transition-transform group border border-white/20"
                    >
-                      <div className="flex flex-col items-start">
-                         <span className="text-black font-black uppercase text-lg flex items-center gap-2">
-                           <Trophy size={20} className="text-black fill-black"/>
-                           GEWONNEN!
-                         </span>
-                         <span className="text-black/70 text-xs font-bold">
-                           vs {game.creator === user.name ? (game.challenger || "Gegner") : game.creator}
-                         </span>
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-md overflow-hidden bg-neutral-900 border border-white/10">
+                          <img src={avatarSrc} alt={opponent} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex flex-col items-start">
+                           <span className="text-black font-black uppercase text-lg flex items-center gap-2">
+                             <Trophy size={20} className="text-black fill-black"/>
+                             GEWONNEN!
+                           </span>
+                           <span className="text-black/70 text-xs font-bold">
+                             vs {opponent}
+                           </span>
+                        </div>
                       </div>
                       <div className="flex flex-col items-end">
                          <span className="bg-black/80 px-3 py-1 rounded-lg text-yellow-500 font-mono font-black text-sm">
@@ -121,7 +130,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                          </span>
                       </div>
                    </button>
-                 ))}
+                 )})}
                </div>
              </div>
            )}
@@ -135,6 +144,9 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                <div className="space-y-3">
                  {myTurnGames.map(game => {
                    const isChallengeForMe = game.target_player === user.name;
+                   const opponent = isChallengeForMe ? game.creator : (game.creator === user.name ? (game.challenger || 'Gegner') : game.creator);
+                   const opponentAvatar = isChallengeForMe ? game.creatorAvatar : (game.creator === user.name ? game.challengerAvatar : game.creatorAvatar);
+                   const avatarSrc = opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`;
                    return (
                      <button 
                        key={game.id}
@@ -145,14 +157,19 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                             : 'bg-gradient-to-r from-orange-500 to-orange-600 shadow-orange-900/20'}
                        `}
                      >
-                        <div className="flex flex-col items-start">
-                           <span className="text-white font-black uppercase text-lg flex items-center gap-2">
-                             {isChallengeForMe ? <Swords size={20} className="text-white"/> : <PlayCircle size={20} className="fill-white text-orange-500"/>}
-                             {isChallengeForMe ? 'DU BIST HERAUSGEFORDERT!' : 'DU BIST DRAN!'}
-                           </span>
-                           <span className={`${isChallengeForMe ? 'text-purple-200' : 'text-orange-200'} text-xs font-medium`}>
-                             {isChallengeForMe ? `von ${game.creator}` : (game.creator === user.name ? 'Warte auf Gegner...' : `vs ${game.creator}`)} 
-                           </span>
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-md overflow-hidden bg-neutral-900 border border-white/10">
+                            <img src={avatarSrc} alt={opponent} className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex flex-col items-start">
+                             <span className="text-white font-black uppercase text-lg flex items-center gap-2">
+                               {isChallengeForMe ? <Swords size={20} className="text-white"/> : <PlayCircle size={20} className="fill-white text-orange-500"/>}
+                               {isChallengeForMe ? 'DU BIST HERAUSGEFORDERT!' : 'DU BIST DRAN!'}
+                             </span>
+                             <span className={`${isChallengeForMe ? 'text-purple-200' : 'text-orange-200'} text-xs font-medium`}>
+                               {isChallengeForMe ? `von ${game.creator}` : (game.creator === user.name ? 'Warte auf Gegner...' : `vs ${game.creator}`)} 
+                             </span>
+                          </div>
                         </div>
                         <div className="flex flex-col items-end">
                            <span className="bg-black/20 px-2 py-1 rounded-lg text-white font-mono font-bold text-xs">

@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import { Trophy, Frown, Loader2, Home, Clock, Target, Zap, CheckCircle2, RefreshCw, RefreshCcw, Wallet, Copy } from 'lucide-react'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
-import { getGameStatus, markGameAsClaimed } from '../services/supabase';
+import { getGameStatus, markGameAsClaimed, fetchProfiles } from '../services/supabase';
 import { createWithdrawLink, getWithdrawLinkStatus } from '../services/lnbits';
 import confetti from 'canvas-confetti';
 import { QRCodeCanvas } from 'qrcode.react'; // WICHTIG: Importieren!
@@ -20,18 +20,38 @@ const ResultView = ({ gameData, onHome }) => {
   const [isChecking, setIsChecking] = useState(false);
 
   const isCreator = user.name === gameData.creator;
-  
+
+  // Avatar state (wird aus profiles geladen)
+  const [creatorAvatar, setCreatorAvatar] = useState(null);
+  const [challengerAvatar, setChallengerAvatar] = useState(null);
+
   const myData = {
-    name: isCreator ? gameData.creator : gameData.challenger,
+    name: isCreator ? gameData.creator : (gameData.challenger || "Gegner"),
     score: isCreator ? finalGameData.creator_score : finalGameData.challenger_score,
     time: isCreator ? finalGameData.creator_time : finalGameData.challenger_time,
+    avatar: isCreator ? creatorAvatar : challengerAvatar
   };
 
   const opData = {
     name: isCreator ? (gameData.challenger || "Gegner") : gameData.creator,
     score: isCreator ? finalGameData.challenger_score : finalGameData.creator_score,
     time: isCreator ? finalGameData.challenger_time : finalGameData.creator_time,
+    avatar: isCreator ? challengerAvatar : creatorAvatar
   };
+
+  // Lade Avatare für Creator & Challenger (falls vorhanden)
+  useEffect(() => {
+    const loadAvatars = async () => {
+      const usernames = [gameData.creator, gameData.challenger].filter(Boolean);
+      if (usernames.length === 0) return;
+      const { data: profiles } = await fetchProfiles(usernames);
+      const map = {};
+      profiles?.forEach(p => map[p.username] = p.avatar || null);
+      setCreatorAvatar(map[gameData.creator] || null);
+      setChallengerAvatar(map[gameData.challenger] || null);
+    };
+    loadAvatars();
+  }, [gameData]);
 
   // --- 0. INITIAL CHECK (REFUND) ---
   useEffect(() => {
@@ -146,7 +166,7 @@ const ResultView = ({ gameData, onHome }) => {
     }
   };
 
-  const PlayerStatCard = ({ name, score, time, isMe, winStatus }) => {
+  const PlayerStatCard = ({ name, score, time, isMe, winStatus, avatar }) => {
     let borderColor = "border-white/10";
     if (status !== 'waiting_for_opponent') {
        if (winStatus === 'win' && isMe) borderColor = "border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]";
@@ -154,10 +174,12 @@ const ResultView = ({ gameData, onHome }) => {
        if (winStatus === 'win' && !isMe) borderColor = "border-green-500/50";
     }
 
+    const avatarSrc = avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${name}`;
+
     return (
       <div className={`flex flex-col items-center bg-[#161616] border ${borderColor} rounded-2xl p-4 transition-all w-full`}>
         <div className="w-12 h-12 rounded-md bg-neutral-800 border border-white/10 overflow-hidden mb-2 shadow-inner">
-           <img src={`https://api.dicebear.com/9.x/avataaars/svg?seed=${name}`} alt={name} className="w-full h-full object-cover" />
+           <img src={avatarSrc} alt={name} className="w-full h-full object-cover" />
         </div>
         <span className={`text-xs font-black uppercase tracking-wider mb-3 ${isMe ? 'text-white' : 'text-neutral-400'}`}>
           {name} {isMe && <span className="text-orange-500">{t('result_you_marker')}</span>}
