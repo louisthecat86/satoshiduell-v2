@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import { ArrowLeft, Inbox, List, BarChart3, CheckCircle2, XCircle, Download, Upload, Trash2, Loader2 } from 'lucide-react';
-import { fetchSubmissions, updateSubmissionStatus, createQuestion, fetchQuestions, fetchAllDuels } from '../services/supabase';
+import { fetchSubmissions, updateSubmissionStatus, createQuestion, fetchQuestions, fetchAllDuels, deleteAllQuestions } from '../services/supabase';
+import QuestionEditor from '../components/admin/QuestionEditor';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
 
@@ -17,7 +18,11 @@ const AdminView = ({ onBack }) => {
 
   // Questions
   const [questions, setQuestions] = useState([]);
+  const [questionGroups, setQuestionGroups] = useState([]);
   const [loadingQ, setLoadingQ] = useState(true);
+  const [importReplace, setImportReplace] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorQuestion, setEditorQuestion] = useState(null);
   const [showImportUrl, setShowImportUrl] = useState(false);
   const [importUrl, setImportUrl] = useState('');
 
@@ -35,11 +40,45 @@ const AdminView = ({ onBack }) => {
     setLoadingSub(false);
   };
 
-  const loadQuestions = async () => {
+  const loadQuestions = async (highlightId = null) => {
     setLoadingQ(true);
-    const { data } = await fetchQuestions();
-    setQuestions(data || []);
+    const { data, error } = await fetchQuestions();
+    if (error) console.error('loadQuestions error:', error);
+    const rows = data || [];
+    setQuestions(rows);
+
+    // Group rows by created_at (one question per language -> group into multi-lang entries)
+    const groupsMap = {};
+    rows.forEach(r => {
+      const key = r.created_at || r.id;
+      if (!groupsMap[key]) groupsMap[key] = { key, created_at: r.created_at, rows: [] };
+      groupsMap[key].rows.push(r);
+    });
+    const groups = Object.values(groupsMap).map(g => {
+      // pick German as representative if exists, otherwise first
+      const rep = g.rows.find(x => x.language === 'de') || g.rows[0];
+      return { ...g, representative: rep };
+    });
+    setQuestionGroups(groups);
+    if (highlightId && Array.isArray(data)) {
+      const found = data.find(d => d.id === highlightId);
+      console.log('Loaded question after refresh (highlight):', highlightId, found || 'NOT FOUND');
+      // Also fetch the single row directly to detect caching / CDN staleness
+      try {
+        const { data: single, error: singleErr } = await (await import('../services/supabase')).fetchQuestionById(highlightId);
+        if (singleErr) console.warn('fetchQuestionById error:', singleErr);
+        console.log('Direct fetch by id result:', single || null);
+      } catch (e) {
+        console.warn('Direct fetch by id failed', e);
+      }
+    }
+    console.log('Loaded questions count:', Array.isArray(data) ? data.length : 0);
     setLoadingQ(false);
+  };
+
+  const openEditor = (q) => {
+    setEditorQuestion(q);
+    setEditorOpen(true);
   };
 
   const loadGames = async () => {
@@ -148,7 +187,21 @@ const AdminView = ({ onBack }) => {
 
     const reader = new FileReader();
     reader.onload = async (e) => {
-      try {
+          try {
+            if (importReplace) {
+              const ok = confirm('Replace mode: This will DELETE all existing questions. Continue?');
+              if (!ok) {
+                event.target.value = '';
+                return;
+              }
+              setActionInProgress('importing');
+              const { error: delErr } = await deleteAllQuestions();
+              if (delErr) {
+                alert('Fehler beim Löschen vorhandener Fragen: ' + (delErr.message || JSON.stringify(delErr)));
+                setActionInProgress(null);
+                return;
+              }
+            }
         const csv = e.target?.result;
         if (!csv) return alert(t('admin_error'));
 
@@ -206,6 +259,91 @@ const AdminView = ({ onBack }) => {
               correct: correctCol >= 0 ? correctCol : null
             };
             console.log('🔍 Auto-Mapping gefunden:', columnMap);
+          }
+        }
+
+        // Wenn neues Format verwendet wird: prüfen, ob die CSV in 3-Zeilen-Blöcken (de,en,es) vorliegt
+        if (useNewFormat) {
+          const parseLine = (line) => {
+            const values = [];
+            let current = '';
+            let inQuotes = false;
+            for (let j = 0; j < line.length; j++) {
+              const char = line[j];
+              if (char === '"') {
+                inQuotes = !inQuotes;
+              } else if ((char === ',' || char === '\t') && !inQuotes) {
+                values.push(current.trim().replace(/^"|"$/g, ''));
+                current = '';
+              } else {
+                current += char;
+              }
+            }
+            values.push(current.trim().replace(/^"|"$/g, ''));
+            return values;
+          };
+
+          const parsedRows = lines.slice(1).map(l => {
+            const vals = parseLine(l);
+            const row = {};
+            rawHeaders.forEach((h, idx) => { row[h.toLowerCase()] = vals[idx]; });
+            return row;
+          });
+
+          let blockMode = true;
+          if (parsedRows.length % 3 !== 0) blockMode = false;
+          for (let i = 0; blockMode && i + 2 < parsedRows.length; i += 3) {
+            const a = (parsedRows[i].language || '').toLowerCase().startsWith('de');
+            const b = (parsedRows[i+1].language || '').toLowerCase().startsWith('en');
+            const c = (parsedRows[i+2].language || '').toLowerCase().startsWith('es');
+            if (!(a && b && c)) blockMode = false;
+          }
+
+          if (blockMode) {
+            let imported = 0;
+            let failed = 0;
+            for (let i = 0; i < parsedRows.length; i += 3) {
+              try {
+                // Representative (DE) row used to find existing group
+                const rep = parsedRows[i];
+                const repQuestion = rep.question;
+                const found = await (await import('../services/supabase')).findQuestionByLanguageAndQuestion('de', repQuestion);
+
+                // If group exists, delete its rows (by created_at) before inserting new ones
+                let useCreatedAt = new Date().toISOString();
+                if (found?.data && found.data.created_at) {
+                  useCreatedAt = found.data.created_at;
+                  const { error: delErr } = await (await import('../services/supabase')).deleteQuestionsByCreatedAt(useCreatedAt);
+                  if (delErr) {
+                    console.warn('Failed to delete existing group by created_at', delErr);
+                  }
+                }
+
+                // Insert the 3 language rows reusing the group's created_at when replacing
+                for (let j = 0; j < 3; j++) {
+                  try {
+                    const r = parsedRows[i + j];
+                    const language = (r.language || 'de').substring(0,2).toLowerCase();
+                    const question = r.question;
+                    const options = [r.option1, r.option2, r.option3, r.option4].map(x => x || '');
+                    const correct = (parseInt(r.correct_answer) || 1) - 1;
+                    if (!question || options.some(o => !o)) { failed++; continue; }
+                    await createQuestion({ language, question, options: options.slice(0,4), correct, created_at: useCreatedAt });
+                    imported++;
+                  } catch (err) {
+                    console.error('Import sub-row error', err);
+                    failed++;
+                  }
+                }
+              } catch (err) {
+                console.error('Import block error', err);
+                failed += 3;
+              }
+            }
+            alert(`✅ ${imported} Fragen importiert (Blockmodus), ${failed} übersprungen`);
+            loadQuestions();
+            event.target.value = '';
+            return;
           }
         }
 
@@ -463,7 +601,7 @@ const AdminView = ({ onBack }) => {
 
   // Stats
   const stats = {
-    totalQuestions: questions.length,
+    totalQuestions: questionGroups.length,
     totalSubmissions: submissions.length,
     totalGames: games.length,
     pendingSubmissions: submissions.filter(s => s.reviewed === false).length
@@ -669,6 +807,10 @@ const AdminView = ({ onBack }) => {
                     <span className="hidden sm:inline">{t('admin_import_csv')}</span>
                     <span className="sm:hidden">Import</span>
                   </button>
+                  <label className="flex items-center gap-2 text-xs text-neutral-300 px-2">
+                    <input type="checkbox" checked={importReplace} onChange={e => setImportReplace(e.target.checked)} className="h-4 w-4" />
+                    <span className="hidden sm:inline">Replace existing</span>
+                  </label>
                   <button 
                     onClick={handleExport}
                     className="flex-1 sm:flex-none flex items-center justify-center gap-1 lg:gap-2 px-3 lg:px-4 py-2 bg-blue-500 hover:bg-blue-600 text-black font-bold text-xs lg:text-sm rounded-lg transition-colors w-full sm:w-auto"
@@ -722,33 +864,61 @@ const AdminView = ({ onBack }) => {
                 </div>
               ) : (
                 <div className="space-y-1 lg:space-y-2">
-                  {questions.map(q => (
-                    <div key={q.id} className="bg-[#161616] border border-white/10 rounded-lg lg:rounded-lg p-2 lg:p-3 hover:border-white/20 transition-colors">
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 items-center">
-                        <div className="sm:col-span-6">
-                          <p className="text-white font-bold text-xs lg:text-sm line-clamp-2">{q.question}</p>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <span className="text-xs font-bold px-2 py-1 bg-blue-500/20 text-blue-300 rounded inline-block">
-                            {q.language || 'de'}
-                          </span>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <span className="text-xs font-bold px-2 py-1 bg-green-500/20 text-green-300 rounded inline-block">
-                            A{(q.correct || 0) + 1}
-                          </span>
-                        </div>
-                        <div className="sm:col-span-2 text-right">
-                          <button className="px-2 py-1 text-red-400 hover:text-red-300 transition-colors">
-                            <Trash2 size={16}/>
-                          </button>
+                  {questionGroups.map(g => {
+                    const q = g.representative;
+                    return (
+                      <div key={q.id} onClick={() => openEditor(q)} className="cursor-pointer bg-[#161616] border border-white/10 rounded-lg lg:rounded-lg p-2 lg:p-3 hover:border-white/20 transition-colors">
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 items-center">
+                          <div className="sm:col-span-6">
+                            <p className="text-white font-bold text-xs lg:text-sm line-clamp-2">{q.question}</p>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <span className="text-xs font-bold px-2 py-1 bg-blue-500/20 text-blue-300 rounded inline-block">
+                              {q.language || 'de'}
+                            </span>
+                          </div>
+                          <div className="sm:col-span-2">
+                            <span className="text-xs font-bold px-2 py-1 bg-green-500/20 text-green-300 rounded inline-block">
+                              A{(q.correct || 0) + 1}
+                            </span>
+                          </div>
+                          <div className="sm:col-span-2 text-right">
+                            <button className="px-2 py-1 text-red-400 hover:text-red-300 transition-colors">
+                              <Trash2 size={16}/>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
+          )}
+
+          {editorOpen && (
+            <QuestionEditor
+              open={editorOpen}
+              onClose={async () => { await loadQuestions(editorQuestion?.id); setEditorOpen(false); setEditorQuestion(null); }}
+              question={editorQuestion}
+              onSaved={async (rowOrId) => {
+                // If we received the updated row object, apply optimistic update to local state
+                try {
+                  if (rowOrId && typeof rowOrId === 'object' && rowOrId.id) {
+                    setQuestions(qs => qs.map(q => q.id === rowOrId.id ? { ...q, ...rowOrId } : q));
+                    console.log('Optimistically updated local questions for id', rowOrId.id);
+                    await loadQuestions(rowOrId.id);
+                  } else if (typeof rowOrId === 'string') {
+                    await loadQuestions(rowOrId);
+                  } else {
+                    await loadQuestions(editorQuestion?.id);
+                  }
+                } catch (e) {
+                  console.warn('onSaved handler error', e);
+                  await loadQuestions(editorQuestion?.id);
+                }
+              }}
+            />
           )}
 
           {/* GAMES TAB */}

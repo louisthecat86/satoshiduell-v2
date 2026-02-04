@@ -1,0 +1,2 @@
+id;question_de;option_de_1;option_de_2;option_de_3;option_de_4;question_en;option_en_1;option_en_2;option_en_3;option_en_4;question_es;option_es_1;option_es_2;option_es_3;option_es_4;correct_index;is_active;is_verified;difficulty
+1;Was ist 1+1?;1;2;3;4;What is 1+1?;1;2;3;4;¿Cuánto es 1+1?;1;2;3;4;2;true;true;easy

@@ -465,23 +465,105 @@ export const fetchQuestions = async (limit = 500) => {
   return { data, error };
 };
 
-export const createQuestion = async ({ language = 'de', question, options = [], correct = 0, tags = [] }) => {
+export const fetchQuestionById = async (id) => {
+  if (!id) return { data: null, error: new Error('No id') };
   const { data, error } = await supabase
     .from('questions')
-    .insert([{ language, question, options, correct, tags }])
+    .select('*')
+    .eq('id', id)
+    .single();
+  return { data, error };
+};
+
+export const fetchQuestionsByCreatedAt = async (created_at) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('*')
+    .eq('created_at', created_at)
+    .order('language', { ascending: true });
+  return { data, error };
+};
+
+export const createQuestion = async ({ language = 'de', question, options = [], correct = 0, tags = [], created_at = null }) => {
+  const payload = { language, question, options, correct, tags };
+  if (created_at) payload.created_at = created_at;
+  const { data, error } = await supabase
+    .from('questions')
+    .insert([payload])
     .select()
     .single();
   return { data, error };
 };
 
-export const updateQuestion = async (id, updateData) => {
+export const deleteAllQuestions = async () => {
   const { data, error } = await supabase
     .from('questions')
-    .update(updateData)
-    .eq('id', id)
-    .select()
-    .single();
+    .delete();
   return { data, error };
+};
+
+export const findQuestionByLanguageAndQuestion = async (language, question) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('*')
+    .eq('language', language)
+    .ilike('question', question)
+    .limit(1)
+    .maybeSingle();
+  return { data, error };
+};
+
+export const deleteQuestionsByCreatedAt = async (created_at) => {
+  if (!created_at) return { data: null, error: new Error('no created_at') };
+  const { data, error } = await supabase
+    .from('questions')
+    .delete()
+    .eq('created_at', created_at);
+  return { data, error };
+};
+
+export const updateQuestion = async (id, updateData) => {
+  // Perform update without requesting a returned representation
+  // Some Supabase REST setups return 406 or an empty body when asking for a representation.
+  const { data: upData, error: upErr } = await supabase
+    .from('questions')
+    .update(updateData)
+    .eq('id', id);
+
+  // Try to fetch the row after the update to confirm persistence.
+  try {
+    const { data: row, error: rowErr } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    // Log immediate comparison
+    try {
+      console.log('updateQuestion: immediate fetch after update', { id, updateData, dbRow: row });
+    } catch (e) {}
+
+    // Schedule delayed checks to detect later overwrites (1s, 3s, 6s)
+    [1000, 3000, 6000].forEach(delay => {
+      setTimeout(async () => {
+        try {
+          const { data: later, error: laterErr } = await supabase
+            .from('questions')
+            .select('*')
+            .eq('id', id)
+            .single();
+          console.log(`updateQuestion: delayed check +${delay}ms`, { id, later, laterErr });
+        } catch (e) {
+          console.warn('updateQuestion: delayed check failed', e);
+        }
+      }, delay);
+    });
+
+    // Prefer returning the fetched row (if available) and any errors encountered.
+    return { data: row ?? upData, error: rowErr || upErr };
+  } catch (e) {
+    return { data: upData, error: upErr };
+  }
 };
 
 export const deleteQuestion = async (id) => {
