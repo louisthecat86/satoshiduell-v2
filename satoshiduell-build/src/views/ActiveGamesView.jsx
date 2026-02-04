@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { ArrowLeft, PlayCircle, Clock, CheckCircle, Swords, Trophy, RefreshCcw } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchUserGames } from '../services/supabase';
@@ -141,7 +142,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-full w-full max-w-md mx-auto relative overflow-hidden">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* HEADER */}
         <div className="p-6 pb-2 flex items-center gap-4">
@@ -166,7 +167,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                    const isCreator = normalize(game.creator) === normalize(user.name);
                    const opponent = isCreator ? (game.challenger || 'Gegner') : game.creator;
                    const opponentAvatar = isCreator ? game.challengerAvatar : game.creatorAvatar;
-                   const avatarSrc = opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`;
+                   const avatarSrc = opponentAvatar || getCryptoPunkAvatar(opponent);
                    
                    return (
                    <button 
@@ -214,7 +215,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                    const isCreator = normalize(game.creator) === normalize(user.name);
                    const opponent = isChallengeForMe ? game.creator : (isCreator ? (game.challenger || 'Gegner') : game.creator);
                    const opponentAvatar = isChallengeForMe ? game.creatorAvatar : (isCreator ? game.challengerAvatar : game.creatorAvatar);
-                   const avatarSrc = opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`;
+                   const avatarSrc = opponentAvatar || getCryptoPunkAvatar(opponent);
                    
                    return (
                      <button 

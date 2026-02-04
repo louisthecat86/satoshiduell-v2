@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { 
   ArrowLeft, Upload, Download, Trash2, Loader2, RefreshCw, 
   Search, FileUp, Globe, X, Save, Check, LayoutDashboard, 
@@ -7,7 +8,8 @@ import {
 } from 'lucide-react';
 import { 
   fetchQuestions, upsertQuestions, deleteQuestion, deleteAllQuestions,
-  fetchAllDuels, fetchSubmissions, updateSubmissionStatus, deleteSubmission, supabase 
+  fetchAllDuels, deleteDuel, fetchSubmissions, updateSubmissionStatus, deleteSubmission, supabase,
+  updatePlayerCanCreateTournament, fetchPlayersForTournamentPermission
 } from '../services/supabase';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -166,10 +168,13 @@ const AdminView = ({ onBack }) => {
   const [games, setGames] = useState([]);
   const [players, setPlayers] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [tournamentCreators, setTournamentCreators] = useState([]);
   
   // UI States
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, type } for confirmation dialog
+  const [replaceConfirm, setReplaceConfirm] = useState(null); // Stores file for replace confirmation
   
   // Editor / Import States
   const [editorOpen, setEditorOpen] = useState(false);
@@ -223,12 +228,20 @@ const AdminView = ({ onBack }) => {
     setLoading(false);
   };
 
+  const loadTournamentCreators = async () => {
+    setLoading(true);
+    const { data } = await fetchPlayersForTournamentPermission();
+    if (data) setTournamentCreators(data.sort((a,b) => a.username.localeCompare(b.username)));
+    setLoading(false);
+  };
+
   useEffect(() => {
      loadStats();
      if (activeTab === 'questions') loadQuestions();
      if (activeTab === 'games') loadGames();
       if (activeTab === 'players') loadPlayers();
       if (activeTab === 'inbox') loadSubmissions();
+      if (activeTab === 'tournaments') loadTournamentCreators();
   }, [activeTab]);
 
   const handleBack = () => {
@@ -247,16 +260,61 @@ const AdminView = ({ onBack }) => {
   // --- HANDLERS ---
   const handleCSVImport = async (e) => {
       const file = e.target.files?.[0];
-      if (!file) return;
-      if (importReplace && !confirm("ACHTUNG: Alle Fragen löschen?")) return;
-      if (importReplace) await deleteAllQuestions();
+      if (!file) {
+        console.log('Keine Datei ausgewählt');
+        return;
+      }
+      
+      console.log('CSV Import gestartet:', file.name);
+      console.log('Replace aktiv:', importReplace);
+      
+      // Wenn Replace aktiv ist, zeige eigenen Bestätigungs-Dialog
+      if (importReplace) {
+        console.log('Zeige Replace-Bestätigung...');
+        setReplaceConfirm(file); // Speichere Datei für später
+        e.target.value = ''; // Reset input
+        return;
+      }
+      
+      // Ohne Replace direkt importieren
+      console.log('Starte Import ohne Replace...');
+      await performImport(file);
+      e.target.value = '';
+  };
 
+  const performImport = async (file) => {
+      console.log('performImport aufgerufen mit:', file.name);
+      console.log('Setze isImporting auf true');
       setIsImporting(true);
+      
+      console.log('Erstelle FileReader...');
       const reader = new FileReader();
+      
+      reader.onerror = (error) => {
+        console.error('Fehler beim Lesen der Datei:', error);
+        alert('❌ Fehler beim Lesen der Datei');
+        setIsImporting(false);
+      };
+      
+      console.log('Registriere onload Handler...');
       reader.onload = async (ev) => {
+          console.log('>>> FileReader onload getriggert <<<');
           try {
-              const lines = ev.target.result.split('\n').filter(l => l.trim().length > 0);
+              console.log('Datei gelesen, parse CSV...');
+              const text = ev.target.result;
+              console.log('Text Länge:', text?.length);
+              const lines = text.split('\n').filter(l => l.trim().length > 0);
+              console.log('Anzahl Zeilen:', lines.length);
+              
+              if (lines.length < 2) {
+                alert('❌ CSV ist leer oder hat nur Header');
+                setIsImporting(false);
+                return;
+              }
+              
               const headers = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/^[\uFEFF\u200B]/, ''));
+              console.log('Headers gefunden:', headers);
+              
               const parsedRows = [];
               for (let i = 1; i < lines.length; i++) {
                   const values = lines[i].split(';'); 
@@ -267,18 +325,88 @@ const AdminView = ({ onBack }) => {
                       if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
                       rowObj[h] = val === '' ? null : val;
                   });
-                  const newQ = { ...rowObj, is_active: 1 };
-                  if (newQ.question_de || newQ.question_en) parsedRows.push(newQ);
+                  
+                  // Nur die Felder behalten, die die Datenbank erwartet
+                  const cleanQ = {
+                    question_de: rowObj.question_de || null,
+                    option_de_1: rowObj.option_de_1 || null,
+                    option_de_2: rowObj.option_de_2 || null,
+                    option_de_3: rowObj.option_de_3 || null,
+                    option_de_4: rowObj.option_de_4 || null,
+                    question_en: rowObj.question_en || null,
+                    option_en_1: rowObj.option_en_1 || null,
+                    option_en_2: rowObj.option_en_2 || null,
+                    option_en_3: rowObj.option_en_3 || null,
+                    option_en_4: rowObj.option_en_4 || null,
+                    question_es: rowObj.question_es || null,
+                    option_es_1: rowObj.option_es_1 || null,
+                    option_es_2: rowObj.option_es_2 || null,
+                    option_es_3: rowObj.option_es_3 || null,
+                    option_es_4: rowObj.option_es_4 || null,
+                    correct_index: rowObj.correct_index !== null ? parseInt(rowObj.correct_index) : 0,
+                    difficulty: rowObj.difficulty || 'medium',
+                    is_active: 1
+                  };
+                  
+                  // Nur hinzufügen wenn mindestens eine Frage vorhanden ist
+                  if (cleanQ.question_de || cleanQ.question_en) parsedRows.push(cleanQ);
               }
-              if (parsedRows.length > 0) {
-                  await upsertQuestions(parsedRows);
-                  alert(`✅ ${parsedRows.length} importiert!`);
-                  loadQuestions(); loadStats();
+              
+              console.log(`${parsedRows.length} Fragen geparst`);
+              console.log('Erste Frage als Beispiel:', parsedRows[0]);
+              
+              if (parsedRows.length === 0) {
+                alert('❌ Keine gültigen Fragen in der CSV gefunden');
+                setIsImporting(false);
+                return;
               }
-          } catch (err) { alert("Error: " + err.message); } 
-          finally { setIsImporting(false); e.target.value = ''; }
+              
+              console.log('Starte Datenbank-Import...');
+              const result = await upsertQuestions(parsedRows);
+              console.log('Import abgeschlossen:', result);
+              
+              if (result.error) {
+                console.error('Datenbank-Fehler:', result.error);
+                alert(`❌ Datenbank-Fehler: ${result.error.message || JSON.stringify(result.error)}`);
+                setIsImporting(false);
+                return;
+              }
+              
+              alert(`✅ ${parsedRows.length} Fragen erfolgreich importiert!`);
+              await loadQuestions(); 
+              await loadStats();
+              
+          } catch (err) { 
+            console.error('Import Fehler:', err);
+            alert("❌ Import Fehler: " + err.message); 
+          } 
+          finally { 
+            console.log('Setze isImporting auf false');
+            setIsImporting(false); 
+          }
       };
+      
+      console.log('Starte Datei-Lesen...');
       reader.readAsText(file, 'UTF-8');
+      console.log('readAsText aufgerufen');
+  };
+
+  const confirmReplaceImport = async () => {
+      if (!replaceConfirm) return;
+      
+      console.log('Replace bestätigt, lösche alte Fragen...');
+      try {
+        await deleteAllQuestions();
+        console.log('Alte Fragen gelöscht');
+      } catch (err) {
+        console.error('Fehler beim Löschen:', err);
+        alert('❌ Fehler beim Löschen der alten Fragen: ' + err.message);
+        setReplaceConfirm(null);
+        return;
+      }
+      
+      await performImport(replaceConfirm);
+      setReplaceConfirm(null);
   };
 
   const handleExport = () => {
@@ -297,10 +425,54 @@ const AdminView = ({ onBack }) => {
       loadQuestions(); loadStats();
   };
 
-  const handleDeleteGame = async (id) => {
-      if(!confirm("Spiel wirklich löschen?")) return;
-      await supabase.from('duels').delete().eq('id', id);
-      loadGames(); loadStats();
+  const handleDeleteGame = (id) => {
+      setDeleteConfirm({ id, type: 'game' });
+  };
+
+  const confirmDelete = async () => {
+      if (!deleteConfirm) return;
+      console.log('Deleting game:', deleteConfirm.id);
+      setLoading(true);
+      try {
+          const { data, error } = await deleteDuel(deleteConfirm.id);
+          
+          console.log('Delete response - data:', data, 'error:', error);
+          
+          if (error) {
+              console.error('Fehler beim Löschen:', error);
+              alert('Fehler beim Löschen des Spiels: ' + error.message);
+              setLoading(false);
+              return;
+          }
+          
+          // Prüfen ob tatsächlich etwas gelöscht wurde
+          if (!data || data.length === 0) {
+              console.warn('Keine Zeilen wurden gelöscht - möglicherweise RLS Policy Problem');
+              alert('Das Spiel konnte nicht gelöscht werden. Möglicherweise fehlen die nötigen Berechtigungen (RLS Policy).');
+              setLoading(false);
+              return;
+          }
+          
+          console.log('Game deleted successfully:', data);
+          
+          // Manuell aus der Liste entfernen (sofort)
+          setGames(prevGames => prevGames.filter(g => g.id !== deleteConfirm.id));
+          
+          // Dann auch neu laden für Sicherheit
+          const { data: freshGames } = await fetchAllDuels(200);
+          if (freshGames) {
+              console.log('Refreshed games list, count:', freshGames.length);
+              setGames(freshGames);
+          }
+          
+          await loadStats();
+          setDeleteConfirm(null);
+      } catch (err) {
+          console.error('Exception beim Löschen:', err);
+          alert('Unerwarteter Fehler beim Löschen: ' + err.message);
+      } finally {
+          setLoading(false);
+      }
   };
 
   const openSubmission = (submission) => {
@@ -400,7 +572,7 @@ const AdminView = ({ onBack }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-full w-full max-w-6xl mx-auto overflow-hidden p-4">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* HEADER */}
         <div className="shrink-0 flex items-center justify-between mb-6">
@@ -443,6 +615,11 @@ const AdminView = ({ onBack }) => {
                       <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 mb-2"><LayoutDashboard size={28}/></div>
                       <span className="text-4xl font-black text-white">{stats.inbox}</span>
                       <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{t('admin_inbox')}</span>
+                    </button>
+                    <button onClick={() => setActiveTab('tournaments')} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors">
+                      <div className="w-12 h-12 rounded-full bg-pink-500/20 flex items-center justify-center text-pink-400 mb-2"><Trophy size={28}/></div>
+                      <span className="text-4xl font-black text-white">{tournamentCreators.filter(p => p.can_create_tournaments).length}</span>
+                      <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Turniermeister</span>
                     </button>
                 </div>
             )}
@@ -528,7 +705,7 @@ const AdminView = ({ onBack }) => {
                           <td className="p-4">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-md bg-neutral-800 border border-white/10 overflow-hidden">
-                                <img src={p.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${p.username}`} alt={p.username} className="w-full h-full object-cover" />
+                                <img src={p.avatar || getCryptoPunkAvatar(p.username)} alt={p.username} className="w-full h-full object-cover" />
                               </div>
                               <span className="text-white font-bold uppercase text-sm">{p.username}</span>
                             </div>
@@ -549,11 +726,8 @@ const AdminView = ({ onBack }) => {
             {/* VIEW: QUESTIONS */}
             {activeTab === 'questions' && (
                 <div className="flex flex-col h-full animate-in fade-in">
-                    <div className="shrink-0 flex flex-col md:flex-row gap-4 mb-4 bg-[#111]/80 p-4 rounded-2xl border border-white/5">
-                        <div className="flex-1 relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
-                            <input type="text" placeholder="Frage suchen..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
-                        </div>
+                    <div className="shrink-0 flex flex-col gap-4 mb-4 bg-[#111]/80 p-4 rounded-2xl border border-white/5">
+                        {/* Import/Export Buttons */}
                         <div className="flex gap-2 items-center justify-end">
                             <label className="text-[10px] text-neutral-400 uppercase cursor-pointer bg-black/40 px-3 py-2 rounded-lg border border-white/5 flex gap-2 hover:bg-white/5">
                                 <input type="checkbox" checked={importReplace} onChange={e => setImportReplace(e.target.checked)} className="accent-red-500" /> Replace
@@ -567,6 +741,12 @@ const AdminView = ({ onBack }) => {
                                     {isImporting ? <Loader2 className="animate-spin" size={16}/> : <FileUp size={16}/>} Import
                                 </button>
                             </div>
+                        </div>
+                        
+                        {/* Suchleiste */}
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                            <input type="text" placeholder="Frage suchen..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
                         </div>
                     </div>
 
@@ -679,6 +859,139 @@ const AdminView = ({ onBack }) => {
               <div className="shrink-0 p-4 border-t border-white/5 bg-[#161616] flex justify-end gap-3">
                 <button onClick={handleRejectSubmission} className="px-6 py-2 rounded-xl bg-red-500/20 text-red-300 text-sm font-black hover:bg-red-500/30">{t('admin_submission_reject')}</button>
                 <button onClick={handleAcceptSubmission} className="px-6 py-2 rounded-xl bg-green-500 text-black text-sm font-black hover:bg-green-400">{t('admin_submission_accept')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: TOURNAMENT PERMISSIONS */}
+        {activeTab === 'tournaments' && (
+            <div className="flex flex-col h-full animate-in fade-in">
+                <div className="shrink-0 mb-4 flex gap-4">
+                    <div className="flex-1 relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                        <input type="text" placeholder="Spieler suchen..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
+                    </div>
+                    <button onClick={loadTournamentCreators} className="p-3 bg-white/5 rounded-xl text-neutral-400 hover:text-white"><RefreshCw size={18}/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-2">
+                    {loading ? (
+                        <div className="flex items-center justify-center h-full">
+                            <Loader2 className="text-purple-500 animate-spin" size={32} />
+                        </div>
+                    ) : tournamentCreators.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-center">
+                            <div className="text-neutral-500">
+                                <p className="text-lg font-bold mb-2">Keine Spieler gefunden</p>
+                                <p className="text-xs">Die Datenbank wurde möglicherweise noch nicht migriert.</p>
+                            </div>
+                        </div>
+                    ) : (
+                        tournamentCreators.filter(p => 
+                            searchTerm === '' || p.username.toLowerCase().includes(searchTerm.toLowerCase())
+                        ).map(player => (
+                            <div key={player.username} className="bg-black/40 border border-white/10 rounded-xl p-4 flex items-center justify-between gap-4 hover:bg-black/50 transition-colors">
+                                <div className="flex items-center gap-3 flex-1">
+                                    <img 
+                                        src={getCryptoPunkAvatar(player.username)} 
+                                        alt={player.username} 
+                                        className="w-10 h-10 rounded-full border border-white/20"
+                                        onError={(e) => { e.target.style.display = 'none'; }}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-bold text-white truncate">{player.username}</p>
+                                        <p className="text-xs text-neutral-500">
+                                            {player.can_create_tournaments ? '✓ Kann Turniere erstellen' : '✗ Noch kein Zugang'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={async () => {
+                                        const newState = !player.can_create_tournaments;
+                                        await updatePlayerCanCreateTournament(player.username, newState);
+                                        loadTournamentCreators();
+                                    }}
+                                    className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all ${
+                                        player.can_create_tournaments 
+                                            ? 'bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500/30' 
+                                            : 'bg-neutral-700 text-neutral-300 hover:bg-neutral-600'
+                                    }`}
+                                >
+                                    {player.can_create_tournaments ? '✓ Aktiv' : 'Freigeben'}
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        )}
+
+        {/* DELETE CONFIRMATION DIALOG */}
+        {deleteConfirm && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center border-2 border-red-500">
+                  <Trash2 className="text-red-500" size={32} />
+                </div>
+                <h3 className="text-xl font-black text-white uppercase">Spiel löschen?</h3>
+                <p className="text-neutral-400 text-sm">
+                  Diese Aktion kann nicht rückgängig gemacht werden. Das Spiel wird permanent gelöscht.
+                </p>
+                <div className="flex gap-3 w-full mt-2">
+                  <button 
+                    onClick={() => setDeleteConfirm(null)} 
+                    disabled={loading}
+                    className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white font-bold hover:bg-white/10 transition-all disabled:opacity-50"
+                  >
+                    Abbrechen
+                  </button>
+                  <button 
+                    onClick={confirmDelete} 
+                    disabled={loading}
+                    className="flex-1 px-4 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {loading ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+                    Löschen
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* REPLACE CONFIRMATION DIALOG */}
+        {replaceConfirm && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center border-2 border-red-500">
+                  <Trash2 className="text-red-500" size={32} />
+                </div>
+                <h3 className="text-xl font-black text-white uppercase">ACHTUNG!</h3>
+                <p className="text-neutral-400 text-sm">
+                  Alle bestehenden Fragen werden <span className="text-red-400 font-bold">permanent gelöscht</span> und durch die neue CSV ersetzt.
+                </p>
+                <p className="text-xs text-neutral-500">
+                  Datei: <span className="text-white font-mono">{replaceConfirm.name}</span>
+                </p>
+                <div className="flex gap-3 w-full mt-2">
+                  <button 
+                    onClick={() => setReplaceConfirm(null)} 
+                    disabled={isImporting}
+                    className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white font-bold hover:bg-white/10 transition-all disabled:opacity-50"
+                  >
+                    Abbrechen
+                  </button>
+                  <button 
+                    onClick={confirmReplaceImport} 
+                    disabled={isImporting}
+                    className="flex-1 px-4 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isImporting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+                    Ersetzen
+                  </button>
+                </div>
               </div>
             </div>
           </div>

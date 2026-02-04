@@ -123,7 +123,7 @@ const BadgesView = ({ onBack }) => {
 
   return (
     <Background allowScroll>
-      <div className="flex flex-col min-h-screen w-full max-w-md mx-auto relative pb-8">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide pb-8">
         
         {/* HEADER */}
         <div className="p-6 pb-2 flex items-center gap-4">

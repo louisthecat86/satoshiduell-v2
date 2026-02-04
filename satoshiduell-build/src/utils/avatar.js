@@ -18,6 +18,28 @@ export const fetchNostrImage = async (pubkey) => {
 };
 
 /**
+ * Generiert einen CryptoPunk-Avatar basierend auf einem Namen
+ * Wandelt den Namen deterministisch in eine Punk-Nummer (0-9999) um
+ * @param {string} name - Name für den Avatar-Seed
+ * @returns {string} URL des CryptoPunk-Bildes
+ */
+export const getCryptoPunkAvatar = (name) => {
+  if (!name) return 'https://www.larvalabs.com/public/images/cryptopunks/punk0.png';
+  
+  // Einfacher Hash: Jeden Buchstaben in eine Zahl umwandeln
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash) + name.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  // Absoluten Wert nehmen und auf 0-9999 mappen
+  const punkNumber = Math.abs(hash) % 10000;
+  
+  return `https://www.larvalabs.com/public/images/cryptopunks/punk${punkNumber}.png`;
+};
+
+/**
  * Generiert einen Roboter-Avatar basierend auf einem Namen
  * @param {string} name - Name für den Avatar-Seed
  * @returns {string} URL des generierten Avatars

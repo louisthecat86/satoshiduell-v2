@@ -48,7 +48,7 @@ const CreateArenaView = ({ onCancel, onConfirm }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto relative overflow-hidden">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         <div className="absolute top-6 left-4 z-50">
           <button onClick={onCancel} className="p-2 text-neutral-500 hover:text-white transition-colors bg-black/20 rounded-full backdrop-blur-sm">
             <X size={24} />

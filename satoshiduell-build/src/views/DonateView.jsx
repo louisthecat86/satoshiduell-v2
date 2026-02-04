@@ -75,7 +75,7 @@ const DonateView = ({ onBack }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-full w-full max-w-md mx-auto p-4 relative">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto p-4 relative overflow-y-auto scrollbar-hide">
         
         {/* HEADER (Herz entfernt) */}
         <div className="flex items-center gap-4 mb-6 z-10">

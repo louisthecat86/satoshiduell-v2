@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { Home, Swords, Loader2, Star, Crown, Medal, ArrowLeft } from 'lucide-react';
 import { fetchLeaderboard, recalculateUserStats } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -63,7 +64,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
           <div className={`rounded-md border-4 overflow-hidden bg-neutral-900 ${size} ${border} transition-transform group-hover:scale-105`} onClick={() => { const muted = localStorage.getItem('satoshi_sound') === 'false'; playSound('click', muted); if(!isMe) onChallenge(player.username); }}>
             {/* AVATAR LOGIK: Eigener Avatar oder Dicebear Fallback */}
             <img 
-                src={player.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${player.username}`} 
+                src={player.avatar || getCryptoPunkAvatar(player.username)} 
                 alt={player.username} 
                 className="w-full h-full object-cover" 
             />
@@ -94,7 +95,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto overflow-hidden relative">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* HEADER */}
         <div className="p-6 pb-2 relative flex items-center justify-center">
@@ -140,7 +141,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                         <div className="w-10 h-10 rounded-md bg-neutral-800 border border-white/5 overflow-hidden flex-shrink-0">
                            {/* AVATAR LOGIK AUCH HIER */}
                            <img 
-                                src={p.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${p.username}`} 
+                                src={p.avatar || getCryptoPunkAvatar(p.username)} 
                                 alt={p.username} 
                                 className="w-full h-full object-cover" 
                            />
@@ -195,7 +196,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                        <div className="mt-3 flex items-center justify-between p-3 rounded-2xl border bg-[#161616] border-white/5">
                          <div className="flex items-center gap-3">
                            <div className="w-10 h-10 rounded-md bg-neutral-800 border border-white/5 overflow-hidden">
-                             <img src={found.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${found.username}`} alt={found.username} className="w-full h-full object-cover" />
+                             <img src={found.avatar || getCryptoPunkAvatar(found.username)} alt={found.username} className="w-full h-full object-cover" />
                            </div>
                            <div className="flex flex-col">
                              <span className="text-sm font-black uppercase text-white">{formatName(found.username)} {isMe && <span className="text-orange-500">*</span>}</span>

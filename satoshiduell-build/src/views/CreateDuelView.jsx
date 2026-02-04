@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { ArrowRight, X, Swords, Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -77,7 +78,7 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto relative overflow-hidden">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* Close Button */}
         <div className="absolute top-6 left-4 z-50">
@@ -103,7 +104,7 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
                   <div className="flex items-center gap-3 bg-white/5 px-6 py-3 rounded-2xl border border-white/10">
                       <div className="w-10 h-10 rounded-md bg-neutral-800 overflow-hidden border border-white/20">
                           <img 
-                             src={`https://api.dicebear.com/9.x/avataaars/svg?seed=${targetPlayer}`} 
+                             src={getCryptoPunkAvatar(targetPlayer)} 
                              alt={targetPlayer} 
                              className="w-full h-full object-cover" 
                           />

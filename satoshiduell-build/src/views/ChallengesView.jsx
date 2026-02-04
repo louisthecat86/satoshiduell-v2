@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { ArrowLeft, Swords, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -58,7 +59,7 @@ const ChallengesView = ({ onAcceptChallenge, onCancel }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto relative overflow-hidden">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
 
         <div className="flex items-center justify-between p-6 pb-2">
           <button onClick={onCancel} className="p-2 text-neutral-500 hover:text-white transition-colors">
@@ -95,7 +96,7 @@ const ChallengesView = ({ onAcceptChallenge, onCancel }) => {
             <div key={game.id} className="bg-[#161616] border border-white/5 rounded-2xl p-4 flex items-center justify-between shadow-lg group hover:border-purple-500/50 hover:bg-[#201526] transition-all">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-md bg-neutral-800 overflow-hidden border border-white/10 shadow-inner">
-                  <img src={game.creatorAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${game.creator}`} alt={game.creator} className="w-full h-full object-cover" />
+                  <img src={game.creatorAvatar || getCryptoPunkAvatar(game.creator)} alt={game.creator} className="w-full h-full object-cover" />
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">{t('challenge_sent')}</span>

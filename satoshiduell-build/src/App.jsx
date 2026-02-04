@@ -7,6 +7,7 @@ import DashboardView from './views/DashboardView';
 import CreateDuelView from './views/CreateDuelView';
 import CreateArenaView from './views/CreateArenaView';
 import PaymentView from './views/PaymentView';
+import TournamentPaymentView from './views/TournamentPaymentView';
 import GameView from './views/GameView';
 import LobbyView from './views/LobbyView';
 import ResultView from './views/ResultView';
@@ -19,9 +20,12 @@ import DonateView from './views/DonateView';
 import SettingsView from './views/SettingsView';
 import AdminView from './views/AdminView';
 import NostrSetupView from './views/NostrSetupView';
+import TournamentsView from './views/TournamentsView';
+import CreateTournamentView from './views/CreateTournamentView';
+import TournamentEntryPaymentView from './views/TournamentEntryPaymentView';
 
 // --- SERVICES & UTILS ---
-import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, supabase } from './services/supabase'; 
+import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, supabase, createTournament } from './services/supabase'; 
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink } from './services/lnbits'; 
 
@@ -35,8 +39,13 @@ export default function App() {
   });
 
   const [view, setView] = useState('dashboard');
+  const [previousView, setPreviousView] = useState('dashboard');
   const [currentGame, setCurrentGame] = useState(null); 
   const [creationAmount, setCreationAmount] = useState(0); 
+  const [currentTournament, setCurrentTournament] = useState(null);
+  const [tournamentPaymentAmount, setTournamentPaymentAmount] = useState(0);
+  const [tournamentRegistration, setTournamentRegistration] = useState(null);
+  const [tournamentEntryAmount, setTournamentEntryAmount] = useState(0);
   const [isJoining, setIsJoining] = useState(false); 
   const [lobbyFilter, setLobbyFilter] = useState(null);
   const [challengeTarget, setChallengeTarget] = useState(null);
@@ -137,6 +146,62 @@ export default function App() {
           console.error("Fehler beim Laden:", error);
           alert("Fehler beim Laden des Spiels.");
       }
+  };
+
+  const handleTournamentCreated = async (tournamentForm) => {
+    if (!userName) {
+      return { ok: false, message: 'LOGIN_REQUIRED' };
+    }
+
+    const tournamentPayload = {
+      name: tournamentForm.name,
+      description: tournamentForm.description,
+      creator: userName,
+      max_players: tournamentForm.maxPlayers,
+      entry_fee: tournamentForm.entryFee,
+      creator_prize_deposit: tournamentForm.prizePool,
+      total_prize_pool: tournamentForm.prizePool,
+      entry_fees_go_to_pool: false,
+      access_level: tournamentForm.accessLevel,
+      questions_per_round: tournamentForm.questionsPerRound,
+      match_deadline: tournamentForm.matchDeadline,
+      no_show_penalty: tournamentForm.noShowPenalty,
+      max_waiting_time: tournamentForm.maxWaitingTime,
+      late_join_allowed: tournamentForm.lateJoinAllowed,
+    };
+
+    const { data, error } = await createTournament(tournamentPayload);
+    if (error || !data) {
+      console.error('Fehler beim Erstellen des Turniers:', error);
+      return { ok: false, message: error?.message || 'CREATE_FAILED' };
+    }
+
+    setCurrentTournament(data);
+    setTournamentPaymentAmount(data.creator_prize_deposit);
+    navigate('tournament-payment');
+    return { ok: true };
+  };
+
+  const handleTournamentPaymentDone = () => {
+    setCurrentTournament(null);
+    setTournamentPaymentAmount(0);
+    navigate('tournaments');
+  };
+
+  const handleRegisterTournament = (tournament) => {
+    if (!userName) {
+      alert('Bitte einloggen, um beizutreten.');
+      return;
+    }
+    setTournamentRegistration(tournament);
+    setTournamentEntryAmount(tournament.entry_fee || 0);
+    navigate('tournament-entry-payment');
+  };
+
+  const handleTournamentEntryDone = () => {
+    setTournamentRegistration(null);
+    setTournamentEntryAmount(0);
+    navigate('tournaments');
   };
 
   const handleOpenLobby = () => {
@@ -286,6 +351,7 @@ export default function App() {
            onOpenChallenges={handleOpenChallengesList}
            onDonate={() => navigate('donate')}
            onOpenSettings={() => navigate('settings')}
+           onOpenTournaments={() => navigate('tournaments')}
          />
        )}
 
@@ -345,7 +411,9 @@ export default function App() {
               setCurrentGame(null);
               setCreationAmount(0);
               setIsJoining(false);
-              navigateReplace('dashboard');
+              const backTo = previousView === 'history' ? 'history' : 'dashboard';
+              setPreviousView('dashboard');
+              navigateReplace(backTo);
            }}
          />
        )}
@@ -384,6 +452,7 @@ export default function App() {
             onBack={() => navigate('dashboard')}
             onSelectGame={(game) => {
                setCurrentGame(game);
+               setPreviousView('history');
                navigate('result'); 
             }}
          />
@@ -422,6 +491,44 @@ export default function App() {
        {/* 13. ADMIN VIEW */}
        {view === 'admin' && (
          <AdminView onBack={() => navigate('dashboard')} />
+       )}
+
+       {/* 14. TOURNAMENTS VIEW */}
+       {view === 'tournaments' && (
+         <TournamentsView 
+            onBack={() => navigate('dashboard')}
+            onCreateTournament={() => navigate('create-tournament')}
+            onRegisterTournament={handleRegisterTournament}
+         />
+       )}
+
+       {/* 15. CREATE TOURNAMENT VIEW */}
+       {view === 'create-tournament' && (
+         <CreateTournamentView 
+            onCancel={() => navigate('tournaments')}
+            onConfirm={handleTournamentCreated}
+         />
+       )}
+
+       {/* 16. TOURNAMENT PAYMENT VIEW */}
+       {view === 'tournament-payment' && currentTournament && (
+         <TournamentPaymentView
+           tournamentId={currentTournament.id}
+           amount={tournamentPaymentAmount}
+           onPaymentSuccess={handleTournamentPaymentDone}
+           onCancel={() => navigate('tournaments')}
+         />
+       )}
+
+       {/* 17. TOURNAMENT ENTRY PAYMENT VIEW */}
+       {view === 'tournament-entry-payment' && tournamentRegistration && (
+         <TournamentEntryPaymentView
+           tournamentId={tournamentRegistration.id}
+           amount={tournamentEntryAmount}
+           participantName={userName}
+           onPaymentSuccess={handleTournamentEntryDone}
+           onCancel={() => navigate('tournaments')}
+         />
        )}
        
     </div>

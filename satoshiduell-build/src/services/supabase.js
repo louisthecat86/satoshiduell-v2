@@ -453,12 +453,16 @@ export const markGameAsClaimed = async (gameId, payoutAmount = null, donationAmo
   if (payoutAmount !== null) updateData.payout_amount = payoutAmount;
   if (donationAmount !== null) updateData.donation_amount = donationAmount;
 
+  console.log('markGameAsClaimed called:', { gameId, updateData });
+
   const { data, error } = await supabase
     .from('duels')
     .update(updateData)
     .eq('id', gameId)
     .select()
     .single();
+
+  console.log('markGameAsClaimed result:', { data, error });
 
   return { data, error };
 };
@@ -469,24 +473,41 @@ export const markGameAsClaimed = async (gameId, payoutAmount = null, donationAmo
 
 export const fetchUserHistory = async (username) => {
   const cleanMe = toLower(username);
+  
+  // Standard Duels (creator oder challenger) - OHNE Arena-Spiele
   const filter = `creator.eq.${cleanMe},challenger.eq.${cleanMe}`;
   const { data: standard, error: standardError } = await supabase
     .from('duels')
     .select('*')
     .or(filter)
+    .neq('mode', 'arena') // Explizit Arena-Spiele ausschließen
     .order('created_at', { ascending: false });
 
-  const { data: arena, error: arenaError } = await supabase
+  // Arena Spiele - suche nach username in participants array (case-insensitive)
+  const { data: allArena, error: arenaError } = await supabase
     .from('duels')
     .select('*')
     .eq('mode', 'arena')
-    .contains('participants', [cleanMe])
     .order('created_at', { ascending: false });
+
+  // Filter Arena games client-side (da PostgreSQL contains case-sensitive ist)
+  const arena = (allArena || []).filter(game => {
+    const participants = game.participants || [];
+    return participants.some(p => toLower(p) === cleanMe);
+  });
 
   if (standardError || arenaError) return { data: standard || arena || [], error: standardError || arenaError };
 
-  const merged = [...(standard || []), ...(arena || [])];
-  return { data: merged, error: null };
+  const merged = [...(standard || []), ...arena];
+  // Remove duplicates based on ID (falls doch welche durchkommen)
+  const unique = merged.filter((game, index, self) => 
+    index === self.findIndex(g => g.id === game.id)
+  );
+  
+  // Sortiere nach created_at
+  unique.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  
+  return { data: unique, error: null };
 };
 
 export const recalculateUserStats = async (username) => {
@@ -498,26 +519,33 @@ export const recalculateUserStats = async (username) => {
     .or(filter)
     .eq('status', 'finished');
 
-  const { data: arenas, error: arenaError } = await supabase
+  // Arena Spiele - alle laden und client-seitig filtern (wegen case-sensitivity)
+  const { data: allArenas, error: arenaError } = await supabase
     .from('duels')
     .select('*')
     .eq('mode', 'arena')
-    .eq('status', 'finished')
-    .contains('participants', [cleanMe]);
+    .eq('status', 'finished');
+
+  // Filter Arena games client-side (case-insensitive)
+  const arenas = (allArenas || []).filter(game => {
+    const participants = game.participants || [];
+    return participants.some(p => toLower(p) === cleanMe);
+  });
 
   if (error || arenaError) {
     console.error('recalculateUserStats: fetch games error', error);
     return null;
   }
 
-  const games = [...(duels || []), ...(arenas || [])];
+  const games = [...(duels || []), ...arenas];
 
   let wins = 0, losses = 0, draws = 0, sats = 0;
 
   games.forEach(g => {
     if (g.mode === 'arena') {
       const winner = g.winner;
-      const iWon = winner && winner === cleanMe;
+      // Case-insensitive Vergleich für Arena-Gewinner
+      const iWon = winner && toLower(winner) === cleanMe;
       if (iWon) wins++; else losses++;
       const claimed = g.is_claimed === true || g.claimed === true;
       if (iWon && claimed) {
@@ -659,6 +687,15 @@ export const fetchAllDuels = async (limit = 100) => {
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
+  return { data, error };
+};
+
+export const deleteDuel = async (id) => {
+  const { data, error } = await supabase
+    .from('duels')
+    .delete()
+    .eq('id', id)
+    .select();
   return { data, error };
 };
 
@@ -832,5 +869,206 @@ export const deleteSubmission = async (id) => {
     .from('question_submissions')
     .delete()
     .eq('id', id);
+  return { data, error };
+};
+
+// ==========================================
+// TOURNAMENT CREATOR PERMISSIONS
+// ==========================================
+
+export const updatePlayerCanCreateTournament = async (username, canCreate) => {
+  const cleanName = toLower(username);
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ can_create_tournaments: canCreate })
+    .eq('username', cleanName)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const fetchPlayersForTournamentPermission = async () => {
+  // Fetch all players with username and handle can_create_tournaments gracefully
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('username, can_create_tournaments')
+    .order('username', { ascending: true });
+  
+  // If error is about unknown column, return data without the column
+  if (error && error.message.includes('can_create_tournaments')) {
+    const { data: fallbackData } = await supabase
+      .from('profiles')
+      .select('username')
+      .order('username', { ascending: true });
+    
+    // Add default can_create_tournaments as false
+    return { 
+      data: fallbackData?.map(p => ({ ...p, can_create_tournaments: false })) || [],
+      error: null 
+    };
+  }
+  
+  return { data, error };
+};
+
+// ==========================================
+// TOURNAMENT MANAGEMENT
+// ==========================================
+
+export const createTournament = async (tournamentData) => {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .insert([{
+      ...tournamentData,
+      status: 'pending_payment',
+      current_participants: 0,
+      participants: [],
+      accumulated_entry_fees: 0
+    }])
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const updateTournament = async (tournamentId, updates) => {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .update(updates)
+    .eq('id', tournamentId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteTournament = async (tournamentId) => {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .delete()
+    .eq('id', tournamentId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const fetchTournaments = async () => {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('*')
+    .order('created_at', { ascending: false });
+  return { data, error };
+};
+
+export const fetchTournamentById = async (tournamentId) => {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('*')
+    .eq('id', tournamentId)
+    .single();
+  return { data, error };
+};
+
+const shuffleArray = (items) => {
+  const array = [...items];
+  for (let i = array.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+};
+
+const getRoundNames = (maxPlayers) => {
+  switch (maxPlayers) {
+    case 2:
+      return ['final'];
+    case 4:
+      return ['semifinals', 'final'];
+    case 8:
+      return ['round1', 'semifinals', 'final'];
+    case 16:
+      return ['round1', 'round2', 'semifinals', 'final'];
+    case 32:
+      return ['round1', 'round2', 'round3', 'semifinals', 'final'];
+    case 64:
+      return ['round1', 'round2', 'round3', 'round4', 'semifinals', 'final'];
+    case 128:
+      return ['round1', 'round2', 'round3', 'round4', 'round5', 'semifinals', 'final'];
+    default:
+      return ['round1', 'round2', 'semifinals', 'final'];
+  }
+};
+
+const buildTournamentBracket = (participants, maxPlayers) => {
+  const shuffled = shuffleArray(participants);
+  const roundNames = getRoundNames(maxPlayers);
+  const bracket = {};
+
+  let matchCount = maxPlayers / 2;
+  roundNames.forEach((roundName, idx) => {
+    const matches = [];
+    for (let i = 0; i < matchCount; i += 1) {
+      if (idx === 0) {
+        const p1 = shuffled[i * 2] || null;
+        const p2 = shuffled[i * 2 + 1] || null;
+        matches.push({ p1, p2, winner: null });
+      } else {
+        matches.push({ p1: null, p2: null, winner: null });
+      }
+    }
+    bracket[roundName] = matches;
+    matchCount = Math.max(1, Math.floor(matchCount / 2));
+  });
+
+  return bracket;
+};
+
+export const addTournamentParticipant = async (tournamentId, username) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  const normalizedName = (username || '').trim();
+  if (!normalizedName) return { data: null, error: new Error('Ungültiger Spielername') };
+
+  const existing = (tournament.participants || []).some(
+    (p) => (p || '').toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (existing) return { data: tournament, error: null };
+
+  if (tournament.current_participants >= tournament.max_players) {
+    return { data: null, error: new Error('Turnier ist voll') };
+  }
+
+  const updatedParticipants = [...(tournament.participants || []), normalizedName];
+  const updatedEntryFees = (tournament.accumulated_entry_fees || 0) + (tournament.entry_fee || 0);
+
+  const isFull = updatedParticipants.length >= tournament.max_players;
+  const updates = {
+    participants: updatedParticipants,
+    current_participants: updatedParticipants.length,
+    accumulated_entry_fees: updatedEntryFees,
+  };
+
+  if (isFull && tournament.status === 'registration') {
+    updates.status = 'active';
+    updates.started_at = new Date().toISOString();
+    updates.bracket = buildTournamentBracket(updatedParticipants, tournament.max_players);
+  }
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+  return { data, error };
+};
+
+export const removeTournamentParticipant = async (tournamentId, username) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  const updatedParticipants = tournament.participants.filter(p => p !== username);
+  const updatedEntryFees = Math.max(0, tournament.accumulated_entry_fees - tournament.entry_fee);
+
+  const { data, error } = await updateTournament(tournamentId, {
+    participants: updatedParticipants,
+    current_participants: updatedParticipants.length,
+    accumulated_entry_fees: updatedEntryFees
+  });
+
   return { data, error };
 };

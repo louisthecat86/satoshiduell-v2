@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { ArrowLeft, History, Trophy, Frown, MinusCircle, RefreshCcw, Calendar, Zap } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 // WICHTIG: Profil laden für die Stats oben
@@ -127,7 +128,7 @@ const HistoryView = ({ onBack, onSelectGame }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-full w-full max-w-md mx-auto relative overflow-hidden">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* HEADER */}
         <div className="p-6 pb-2 flex items-center gap-4">
@@ -208,7 +209,7 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                                    </span>
                                    <div className="flex items-center gap-2">
                                        <div className="w-6 h-6 rounded-md overflow-hidden border border-white/5">
-                                           <img src={opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`} alt={opponent} className="w-full h-full object-cover" />
+                                           <img src={opponentAvatar || getCryptoPunkAvatar(opponent)} alt={opponent} className="w-full h-full object-cover" />
                                        </div>
                                        <span className="text-xs text-neutral-500 font-bold truncate max-w-[140px]">vs {opponent}</span>
                                    </div>

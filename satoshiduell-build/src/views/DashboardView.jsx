@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
 import Background from '../components/ui/Background';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { 
   Plus, Trophy, Users, Swords, PlayCircle, History, 
   Medal, Heart, LogOut, Settings 
@@ -20,6 +21,7 @@ const DashboardView = ({
   onOpenChallenges,
   onDonate, 
   onOpenSettings,
+  onOpenTournaments,
 }) => {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -139,7 +141,7 @@ const DashboardView = ({
 
   return (
     <Background>
-      <div className="flex flex-col h-full px-4 py-6 max-w-md mx-auto relative overflow-y-auto pb-20 scrollbar-hide">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto pb-20 scrollbar-hide">
         {/* Watermark */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <img
@@ -157,12 +159,12 @@ const DashboardView = ({
             <div className="w-12 h-12 rounded-xl bg-[#222] border border-white/10 overflow-hidden relative shadow-inner">
                <img 
                   // PRIORITÄT: 1. DB-Profil, 2. Lokaler User, 3. Platzhalter
-                  src={userProfile?.avatar || user?.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${user?.name || 'User'}`} 
+                  src={userProfile?.avatar || user?.avatar || getCryptoPunkAvatar(user?.name || 'User')} 
                   alt="Avatar" 
                   className="w-full h-full object-cover"
                   onError={(e) => { 
                       e.target.onerror = null; 
-                      e.target.src=`https://api.dicebear.com/9.x/avataaars/svg?seed=${user?.name}`; 
+                      e.target.src=getCryptoPunkAvatar(user?.name); 
                   }}
                />
             </div>
@@ -201,10 +203,13 @@ const DashboardView = ({
             <span className="text-xs font-black uppercase tracking-widest drop-shadow-sm">{t('dashboard_new_game')}</span>
           </button>
 
-          <button className="col-span-1 bg-[#111] border border-white/5 text-neutral-600 rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-visible h-32 group hover:border-white/20 transition-all cursor-not-allowed opacity-70">
-              <div className="absolute top-2 right-2 text-[9px] bg-neutral-800 text-neutral-500 px-2 py-0.5 rounded-full font-bold border border-white/5">SOON</div>
-              <Trophy size={32} className="mb-2 opacity-50 group-hover:opacity-80 transition-opacity" />
-              <span className="text-xs font-black uppercase tracking-widest opacity-50 group-hover:opacity-80 transition-opacity">{t('dashboard_new_tournament')}</span>
+          <button 
+            onClick={onOpenTournaments}
+            className="col-span-1 bg-gradient-to-br from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 text-white rounded-2xl p-4 flex flex-col items-center justify-center shadow-lg shadow-purple-900/20 active:scale-95 transition-all h-32 relative group overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+            <Trophy size={32} className="mb-2 drop-shadow-md" />
+            <span className="text-xs font-black uppercase tracking-widest drop-shadow-sm">{t('dashboard_new_tournament')}</span>
           </button>
 
           <DashboardCard title={t('tile_lobby')} icon={Users} colorClass="text-orange-500" onClick={onPlay} badgeCount={lobbyCount} />

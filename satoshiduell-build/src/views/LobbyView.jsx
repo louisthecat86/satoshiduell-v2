@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { Users, Search, RefreshCw, Swords, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { fetchOpenDuels, fetchProfiles } from '../services/supabase';
@@ -69,7 +70,7 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto relative overflow-hidden">
+      <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         
         {/* HEADER */}
         <div className="flex items-center justify-between p-6 pb-2">
@@ -122,7 +123,7 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-md bg-neutral-800 overflow-hidden border border-white/10 shadow-inner">
                   <img 
-                    src={game.creatorAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${game.creator}`} 
+                    src={game.creatorAvatar || getCryptoPunkAvatar(game.creator)} 
                     alt={game.creator} 
                     className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
                   />

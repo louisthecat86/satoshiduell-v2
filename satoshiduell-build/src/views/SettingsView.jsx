@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { ArrowLeft, Bell, Volume2, Lock, Save, Loader2, Camera, ShieldCheck } from 'lucide-react'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -163,7 +164,7 @@ const SettingsView = ({ onBack, onOpenAdmin }) => {
                             </div>
                         ) : (
                             <img 
-                                src={avatarUrl || `https://api.dicebear.com/9.x/avataaars/svg?seed=${currentUsername}`} 
+                                src={avatarUrl || getCryptoPunkAvatar(currentUsername)} 
                                 alt="Profil" 
                                 className="w-full h-full object-cover"
                             />

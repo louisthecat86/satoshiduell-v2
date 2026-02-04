@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 import { Trophy, Frown, Loader2, Home, Clock, Target, CheckCircle2, RefreshCw, RefreshCcw, Wallet, Copy, Hourglass, UserPlus } from 'lucide-react'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -13,15 +14,54 @@ const ResultView = ({ gameData, onHome }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
 
-    const userName = user?.username || user?.name || '';
+  const userName = user?.username || user?.name || '';
 
   const [finalGameData, setFinalGameData] = useState(gameData);
   const [viewStatus, setViewStatus] = useState('loading'); 
   const [withdrawData, setWithdrawData] = useState(null); 
-  const [isClaimed, setIsClaimed] = useState(gameData.is_claimed || gameData.claimed || false); 
+  const [isClaimed, setIsClaimed] = useState(false); // Initial false, wird durch useEffect gesetzt
   const [isChecking, setIsChecking] = useState(false);
   const [payoutChoice, setPayoutChoice] = useState('full');
   const [showPayoutQr, setShowPayoutQr] = useState(false);
+  const [creatorAvatar, setCreatorAvatar] = useState(null);
+  const [challengerAvatar, setChallengerAvatar] = useState(null);
+  const [arenaAvatars, setArenaAvatars] = useState({}); // Map: username -> avatar URL
+
+  // --- HELPER: Normalisierung für case-insensitive Vergleiche ---
+  const normalize = (str) => (str || "").toLowerCase().trim();
+
+  // --- GAME MODE & PLAYER DATA ---
+  const isArena = finalGameData.mode === 'arena';
+  const isCreator = normalize(userName) === normalize(finalGameData.creator);
+  const hasChallenger = !!finalGameData.challenger;
+
+  const myData = isCreator
+    ? { 
+        name: finalGameData.creator,
+        score: finalGameData.creator_score, 
+        time: finalGameData.creator_time,
+        avatar: creatorAvatar
+      }
+    : { 
+        name: finalGameData.challenger || userName,
+        score: finalGameData.challenger_score, 
+        time: finalGameData.challenger_time,
+        avatar: challengerAvatar
+      };
+  
+  const opData = isCreator
+    ? { 
+        name: finalGameData.challenger || finalGameData.target_player || '???',
+        score: finalGameData.challenger_score, 
+        time: finalGameData.challenger_time,
+        avatar: challengerAvatar
+      }
+    : { 
+        name: finalGameData.creator,
+        score: finalGameData.creator_score, 
+        time: finalGameData.creator_time,
+        avatar: creatorAvatar
+      };
 
   useEffect(() => {
       const determineStatus = () => {
@@ -88,6 +128,21 @@ const ResultView = ({ gameData, onHome }) => {
     generateWinLink(payoutAmount);
   }, [payoutChoice, showPayoutQr]);
 
+  // --- SYNC isClaimed mit finalGameData (auch beim initialen Laden) ---
+  useEffect(() => {
+    const claimed = finalGameData.is_claimed || finalGameData.claimed || false;
+    console.log('Claimed status check:', {
+      gameId: finalGameData.id,
+      is_claimed: finalGameData.is_claimed,
+      claimed: finalGameData.claimed,
+      computed: claimed,
+      currentIsClaimed: isClaimed
+    });
+    if (claimed !== isClaimed) {
+      setIsClaimed(claimed);
+    }
+  }, [finalGameData.is_claimed, finalGameData.claimed, finalGameData.id]);
+
 
   // --- 4. LIVE UPDATE ---
   useEffect(() => {
@@ -119,18 +174,33 @@ const ResultView = ({ gameData, onHome }) => {
       const map = {};
       profiles?.forEach(p => map[p.username] = p.avatar || null);
       
-      const cAvatar = map[finalGameData.creator];
-      const chAvatar = map[finalGameData.challenger || finalGameData.target_player];
-      
-      setCreatorAvatar(cAvatar);
-      setChallengerAvatar(chAvatar);
+      if (isArena) {
+        // Für Arena: Alle Teilnehmer-Avatare speichern
+        setArenaAvatars(map);
+      } else {
+        // Für Duel: Creator und Challenger separat
+        const cAvatar = map[finalGameData.creator];
+        const chAvatar = map[finalGameData.challenger || finalGameData.target_player];
+        
+        setCreatorAvatar(cAvatar);
+        setChallengerAvatar(chAvatar);
+      }
   };
   
   useEffect(() => {
-     if (!creatorAvatar || (hasChallenger && !challengerAvatar)) {
-         loadAvatars([finalGameData.creator, finalGameData.challenger || finalGameData.target_player].filter(Boolean));
+     if (isArena) {
+       // Lade Avatare aller Arena-Teilnehmer
+       const participants = finalGameData.participants || [];
+       if (participants.length > 0 && Object.keys(arenaAvatars).length === 0) {
+         loadAvatars(participants);
+       }
+     } else {
+       // Lade Creator/Challenger Avatare für Duels
+       if (!creatorAvatar || (hasChallenger && !challengerAvatar)) {
+           loadAvatars([finalGameData.creator, finalGameData.challenger || finalGameData.target_player].filter(Boolean));
+       }
      }
-  }, []);
+  }, [finalGameData.participants, finalGameData.challenger]);
 
 
   // --- 6. GEWINN LOGIK ---
@@ -155,27 +225,45 @@ const ResultView = ({ gameData, onHome }) => {
       if (isClaimed) return;
       setIsClaimed(true);
       confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-      await markGameAsClaimed(finalGameData.id, payoutAmount, donationAmount);
+      console.log('🎉 Calling markGameAsClaimed...');
+      const result = await markGameAsClaimed(finalGameData.id, payoutAmount, donationAmount);
+      console.log('markGameAsClaimed completed:', result);
       setTimeout(() => onHome(), 2500);
   };
 
   const checkWithdrawStatus = async () => {
     if (!withdrawData?.id || isClaimed) return;
     setIsChecking(true);
+    console.log('Checking withdraw status for:', withdrawData.id);
     const claimed = await getWithdrawLinkStatus(withdrawData.id);
+    console.log('Withdraw status result:', claimed);
     setIsChecking(false);
-    if (claimed) await handleClaimSuccess(); 
+    if (claimed) {
+      console.log('✅ Withdraw was claimed! Marking game as claimed...');
+      await handleClaimSuccess();
+    }
   };
   
   useEffect(() => {
     let interval;
     if (withdrawData?.id && !isClaimed) {
+      console.log('Starting auto-check for withdraw link:', withdrawData.id);
       interval = setInterval(async () => {
           const claimed = await getWithdrawLinkStatus(withdrawData.id);
-          if (claimed) { clearInterval(interval); await handleClaimSuccess(); }
+          console.log('Auto-check result:', claimed);
+          if (claimed) { 
+            clearInterval(interval); 
+            console.log('✅ Auto-detected claim! Marking game...');
+            await handleClaimSuccess(); 
+          }
       }, 3000); 
     }
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) {
+        console.log('Stopping auto-check');
+        clearInterval(interval);
+      }
+    };
   }, [withdrawData, isClaimed]);
 
 
@@ -250,45 +338,172 @@ const ResultView = ({ gameData, onHome }) => {
     <Background>
       <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto relative overflow-y-auto p-4 pb-20 scrollbar-hide">
 
-        {isArena && (
-          <div className="bg-black/40 border border-white/10 rounded-2xl p-4 mb-4">
-            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">{t('arena_scoreboard')}</h3>
-            <div className="flex flex-col gap-2">
-              {(() => {
-                const scores = finalGameData.participant_scores || {};
-                const times = finalGameData.participant_times || {};
-                const rows = (finalGameData.participants || []).map(p => ({
-                  name: p,
-                  score: scores[p] ?? null,
-                  time: times[p] ?? null
-                }));
+        {/* ARENA: Vollständige Bestenlisten-Ansicht */}
+        {isArena ? (
+          <div className="flex-1 flex flex-col">
+            {/* HEADER */}
+            <div className="mb-6 text-center">
+              {viewStatus === 'win' ? (
+                <Trophy size={64} className="text-yellow-400 mb-4 mx-auto drop-shadow-[0_0_25px_rgba(250,204,21,0.5)]" />
+              ) : viewStatus === 'lose' ? (
+                <Frown size={64} className="text-neutral-600 mb-4 mx-auto" />
+              ) : (
+                <Loader2 size={48} className="text-orange-500 animate-spin mb-4 mx-auto" />
+              )}
+              <h2 className={`text-3xl font-black uppercase italic ${viewStatus === 'win' ? 'text-green-400' : viewStatus === 'lose' ? 'text-red-400' : 'text-white'}`}>
+                {viewStatus === 'win' ? t('result_win_title') : viewStatus === 'lose' ? t('result_lose_title') : t('arena_waiting_results')}
+              </h2>
+              {viewStatus === 'win' && (
+                <p className="text-neutral-500 text-xs mt-2 uppercase tracking-widest font-bold">+{payoutAmount} SATS</p>
+              )}
+            </div>
 
-                rows.sort((a, b) => {
-                  if (a.score === null) return 1;
-                  if (b.score === null) return -1;
-                  if (b.score !== a.score) return b.score - a.score;
-                  return (a.time ?? Infinity) - (b.time ?? Infinity);
-                });
+            {/* BESTENLISTE */}
+            <div className="bg-black/40 border border-white/10 rounded-2xl p-4 mb-6">
+              <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-4 text-center">{t('arena_scoreboard')}</h3>
+              <div className="flex flex-col gap-3">
+                {(() => {
+                  const scores = finalGameData.participant_scores || {};
+                  const times = finalGameData.participant_times || {};
+                  const participants = finalGameData.participants || [];
+                  
+                  const rows = participants.map(p => ({
+                    name: p,
+                    score: scores[p] ?? null,
+                    time: times[p] ?? null
+                  }));
 
-                return rows.map((row, idx) => {
-                  const isWinner = finalGameData.winner && normalize(finalGameData.winner) === normalize(row.name);
-                  const placeLabel = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
-                  return (
-                    <div key={row.name} className={`flex items-center justify-between px-3 py-2 rounded-xl border ${isWinner ? 'bg-yellow-500/10 border-yellow-400 text-yellow-300' : 'bg-white/5 border-white/5 text-neutral-300'}`}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs">{placeLabel}</span>
-                        <span className="text-xs font-bold uppercase truncate max-w-[120px]">{row.name}</span>
+                  rows.sort((a, b) => {
+                    if (a.score === null) return 1;
+                    if (b.score === null) return -1;
+                    if (b.score !== a.score) return b.score - a.score;
+                    return (a.time ?? Infinity) - (b.time ?? Infinity);
+                  });
+
+                  return rows.map((row, idx) => {
+                    const isMe = normalize(row.name) === normalize(userName);
+                    const isWinner = idx === 0 && row.score !== null;
+                    const placeIcon = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
+                    const timeInSeconds = row.time !== null ? (row.time / 1000).toFixed(2) : '-';
+                    
+                    return (
+                      <div 
+                        key={row.name} 
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
+                          isWinner 
+                            ? 'bg-yellow-500/10 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' 
+                            : isMe
+                            ? 'bg-orange-500/10 border-orange-500/50'
+                            : 'bg-white/5 border-white/10'
+                        }`}
+                      >
+                        {/* Platzierung */}
+                        <div className="flex items-center justify-center w-8">
+                          {placeIcon ? (
+                            <span className="text-2xl">{placeIcon}</span>
+                          ) : (
+                            <span className="text-sm font-black text-neutral-500">#{idx + 1}</span>
+                          )}
+                        </div>
+
+                        {/* Avatar */}
+                        <div className="w-12 h-12 rounded-full bg-neutral-800 border-2 border-white/20 overflow-hidden flex-shrink-0">
+                          <img 
+                            src={arenaAvatars[row.name] || getCryptoPunkAvatar(row.name)}
+                            alt={row.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+
+                        {/* Name */}
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-black uppercase text-sm truncate ${isWinner ? 'text-yellow-300' : isMe ? 'text-orange-400' : 'text-white'}`}>
+                            {row.name}
+                            {isMe && <span className="ml-1 text-[10px] text-neutral-500">(Du)</span>}
+                          </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div className="flex flex-col items-end gap-1">
+                          <div className={`text-xs font-bold ${isWinner ? 'text-yellow-300' : 'text-green-400'}`}>
+                            {row.score !== null ? `${row.score} Richtig` : 'Ausstehend'}
+                          </div>
+                          <div className="text-[10px] font-mono text-neutral-400">
+                            {row.time !== null ? `${timeInSeconds}s` : '-'}
+                          </div>
+                        </div>
                       </div>
-                      <span className="text-xs font-mono">{row.score ?? '-'} / {row.time ?? '-'}ms</span>
-                    </div>
-                  );
-                });
-              })()}
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* WIN PAYOUT (nur bei Gewinn) */}
+            {viewStatus === 'win' && !isClaimed && (
+               <div className="animate-in slide-in-from-bottom-4 duration-700 w-full mb-6 flex flex-col items-center">
+                   <h3 className="font-black uppercase italic text-xl mb-4 text-white drop-shadow-md">{t('result_claim_title')}</h3>
+
+                   <div className="w-full bg-white/5 border border-white/10 rounded-xl p-3 mb-4">
+                     <p className="text-xs text-neutral-400 mb-2 uppercase tracking-widest font-bold">Auszahlung wählen</p>
+                     <div className="flex gap-2">
+                       <button
+                         onClick={() => setPayoutChoice('full')}
+                         className={`flex-1 px-3 py-2 rounded-lg text-xs font-black uppercase ${payoutChoice === 'full' ? 'bg-green-500 text-black' : 'bg-white/10 text-white'}`}
+                       >
+                         Voller Gewinn
+                       </button>
+                       <button
+                         onClick={() => setPayoutChoice('donate1')}
+                         className={`flex-1 px-3 py-2 rounded-lg text-xs font-black uppercase ${payoutChoice === 'donate1' ? 'bg-orange-500 text-black' : 'bg-white/10 text-white'}`}
+                       >
+                         -1% Spende
+                       </button>
+                     </div>
+                     {payoutChoice === 'donate1' && (
+                       <p className="text-[10px] text-neutral-400 mt-2">
+                         Du spendest {donationAmount} SATS an die Weiterentwicklung.
+                       </p>
+                     )}
+                   </div>
+                   
+                   {!showPayoutQr ? (
+                     <button
+                       onClick={() => { setShowPayoutQr(true); generateWinLink(payoutAmount); }}
+                       className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 py-4 rounded-xl text-black font-black uppercase text-center shadow-lg hover:scale-[1.02] transition-transform"
+                     >
+                       QR-Code anzeigen
+                     </button>
+                   ) : (
+                     <div className="bg-white p-4 rounded-2xl shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4 relative flex flex-col items-center gap-4">
+                        {withdrawData?.lnurl ? (
+                            <>
+                               <QRCodeCanvas value={`lightning:${withdrawData.lnurl}`} size={260} level="H" includeMargin />
+                               <a href={`lightning:${withdrawData.lnurl}`} className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 py-3 rounded-lg text-black font-black uppercase text-center flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform">
+                                   <Wallet size={18}/> Wallet öffnen
+                               </a>
+                               <button onClick={() => {navigator.clipboard.writeText(withdrawData.lnurl); alert(t('nostr_copied'));}} className="absolute top-2 right-2 p-2 bg-neutral-100 rounded-lg hover:bg-neutral-200">
+                                   <Copy size={14} className="text-neutral-500"/>
+                               </button>
+                            </>
+                        ) : (
+                            <Loader2 className="animate-spin text-orange-500" size={32}/>
+                        )}
+                     </div>
+                   )}
+               </div>
+            )}
+
+            {/* HOME BUTTON */}
+            <div className="mt-auto">
+              <Button onClick={onHome} variant="secondary" className="w-full py-4 flex items-center justify-center gap-2 shadow-lg hover:bg-white/10">
+                <Home size={20}/> {t('result_home_button')}
+              </Button>
             </div>
           </div>
-        )}
-        
-        <div className="flex-1 flex flex-col items-center pt-8">
+        ) : (
+          /* DUEL: Klassische VS-Ansicht */
+          <div className="flex-1 flex flex-col items-center pt-8">
           
           {/* HEADER */}
           <div className="mb-8 text-center min-h-[120px] flex flex-col items-center justify-center">
@@ -405,14 +620,14 @@ const ResultView = ({ gameData, onHome }) => {
              </div>
           )}
 
+          {/* FOOTER */}
+          <div className="pb-6 mt-auto">
+            <Button onClick={onHome} variant="secondary" className="w-full py-4 flex items-center justify-center gap-2 shadow-lg hover:bg-white/10">
+              <Home size={20} /> {t('result_home_button')}
+            </Button>
+          </div>
         </div>
-
-        {/* FOOTER */}
-        <div className="pb-6">
-          <Button onClick={onHome} variant="secondary" className="w-full py-4 flex items-center justify-center gap-2 shadow-lg hover:bg-white/10">
-            <Home size={20} /> {t('back_home')}
-          </Button>
-        </div>
+        )}
 
       </div>
     </Background>
@@ -424,7 +639,7 @@ const PlayerStatCard = ({ name, score, time, isMe, status, avatar }) => {
     if (status === 'win') borderClass = "border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]";
     if (status === 'lose') borderClass = "border-red-500/50";
 
-    const avatarSrc = avatar || (name === "???" ? null : `https://api.dicebear.com/9.x/avataaars/svg?seed=${name}`);
+    const avatarSrc = avatar || (name === "???" ? null : getCryptoPunkAvatar(name));
 
     return (
       <div className={`flex flex-col items-center bg-[#161616] border ${borderClass} rounded-2xl p-4 transition-all w-full relative overflow-hidden`}>
