@@ -6,27 +6,48 @@ import { useAuth } from '../hooks/useAuth';
 import { fetchUserGames } from '../services/supabase';
 import { useTranslation } from '../hooks/useTranslation';
 
-// 24 Stunden in Millisekunden (Setze es zum Testen wieder auf 0, wenn nötig)
+// 24 Stunden in Millisekunden (Zum Testen auf z.B. 10 * 1000 setzen)
 const REFUND_TIMEOUT = 24 * 60 * 60 * 1000; 
 
 const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => { 
   const { user } = useAuth();
   const { t } = useTranslation();
+  const userName = user?.username || user?.name || '';
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // --- HELPER: Sicherer Vergleich ---
+  const normalize = (str) => (str || "").toLowerCase().trim();
+
   useEffect(() => {
     const loadGames = async () => {
-      if (user?.name) {
-        const { data } = await fetchUserGames(user.name);
+      if (userName) {
+        // fetchUserGames liefert bereits mit Avataren angereicherte Daten
+        const { data } = await fetchUserGames(userName);
         if (data) setGames(data);
       }
       setLoading(false);
     };
     loadGames();
-    const interval = setInterval(loadGames, 5000);
+    const interval = setInterval(loadGames, 5000); // Live update alle 5s
     return () => clearInterval(interval);
-  }, [user]);
+  }, [userName]);
+
+  const handleShareDuel = async (game) => {
+    try {
+      const shareUrl = `https://satoshiduell.com/?duel=${game.id}`;
+      const shareText = t('share_content', { amount: game.amount, url: shareUrl });
+
+      if (navigator.share) {
+        await navigator.share({ text: shareText, url: shareUrl });
+      } else {
+        await navigator.clipboard.writeText(shareText);
+        alert(t('share_success'));
+      }
+    } catch (err) {
+      console.error('Share error:', err);
+    }
+  };
 
   // --- LOGIK TRENNUNG ---
 
@@ -35,39 +56,83 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
     if (g.status !== 'finished') return false;
     if (g.is_claimed === true || g.claimed === true) return false; 
 
-    const isCreator = g.creator === user.name;
+    if (g.mode === 'arena') {
+      const winner = g.winner;
+      return winner && normalize(winner) === normalize(userName);
+    }
+
+    const isCreator = normalize(g.creator) === normalize(userName);
+    
     const myScore = isCreator ? g.creator_score : g.challenger_score;
     const opScore = isCreator ? g.challenger_score : g.creator_score;
     const myTime = isCreator ? g.creator_time : g.challenger_time; 
     const opTime = isCreator ? g.challenger_time : g.creator_time;
+    
+    // Gewonnen wenn Score höher ODER (Score gleich UND Zeit besser)
     const iWon = myScore > opScore || (myScore === opScore && myTime < opTime);
 
     return iWon;
   });
   
-  // 2. ACTION: Ich muss spielen
+  // 2. ACTION: Ich muss spielen (bin dran)
   const myTurnGames = games.filter(g => {
+    if (g.mode === 'arena') {
+      const participants = Array.isArray(g.participants) ? g.participants : [];
+      if (!participants.map(normalize).includes(normalize(userName))) return false;
+      const scores = g.participant_scores || {};
+      const myScore = scores[normalize(userName)] ?? scores[userName];
+      return (g.status === 'open' || g.status === 'active') && (myScore === null || myScore === undefined);
+    }
     if (g.status === 'finished') return false; 
     if (g.status === 'refunded') return false; 
-    if (g.target_player === user.name && !g.challenger) return true;
+    
+    const me = normalize(userName);
+    const target = normalize(g.target_player);
 
-    const isCreator = g.creator === user.name;
+    // Fall A: Ich bin Herausgefordert und habe noch nicht angenommen/gespielt
+    if (target === me && !g.challenger) return true;
+
+    // Fall B: Spiel läuft, aber ich habe noch kein Ergebnis
+    const isCreator = normalize(g.creator) === me;
     const myScore = isCreator ? g.creator_score : g.challenger_score;
+    
+    // Zeige an, wenn Status active/open ist UND ich noch keine Punkte habe
+    // (Ausnahme: Wenn ich Creator bin und Status open ist -> dann warte ich auf Gegner, spiele nicht selbst nochmal)
+    if (g.status === 'open' && isCreator) return false; 
+
     return (g.status === 'active' || g.status === 'open') && myScore === null;
   });
 
-  // 3. WAITING: Ich warte auf Gegner
+  // 3. WAITING: Ich habe gespielt, warte auf Gegner
   const waitingGames = games.filter(g => {
+    if (g.mode === 'arena') {
+      const participants = Array.isArray(g.participants) ? g.participants : [];
+      if (!participants.map(normalize).includes(normalize(userName))) return false;
+      const scores = g.participant_scores || {};
+      const myScore = scores[normalize(userName)] ?? scores[userName];
+      if (g.status === 'open') return myScore !== null && myScore !== undefined;
+      return g.status === 'active' && myScore !== null && myScore !== undefined;
+    }
     if (g.status === 'finished') return false;
     if (g.status === 'refunded') return false;
-    if (g.target_player === user.name && !g.challenger) return false;
+    
+    const me = normalize(userName);
+    const target = normalize(g.target_player);
 
-    const isCreator = g.creator === user.name;
+    // Wenn ich herausgefordert wurde, aber noch nicht angenommen habe -> gehört zu "My Turn"
+    if (target === me && !g.challenger) return false;
+
+    const isCreator = normalize(g.creator) === me;
     const myScore = isCreator ? g.creator_score : g.challenger_score;
-    return (g.status === 'active' || g.status === 'open') && myScore !== null;
+    
+    // Zeige an, wenn ich Creator bin und noch keiner gejoined ist (Status open)
+    if (g.status === 'open' && isCreator) return true;
+
+    // Oder wenn ich schon gespielt habe (Score != null) und das Spiel noch läuft
+    return g.status === 'active' && myScore !== null;
   });
 
-  // 4. REFUNDED: Storniert ABER NOCH NICHT ABGEHOLT (Das ist der Fix!)
+  // 4. REFUNDED: Storniert ABER NOCH NICHT ABGEHOLT
   const refundedGames = games.filter(g => 
       g.status === 'refunded' && 
       g.is_claimed !== true && 
@@ -98,9 +163,11 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                </h3>
                <div className="space-y-3">
                  {claimableGames.map(game => {
-                   const opponent = game.creator === user.name ? (game.challenger || 'Gegner') : game.creator;
-                   const opponentAvatar = game.creator === user.name ? game.challengerAvatar : game.creatorAvatar;
+                   const isCreator = normalize(game.creator) === normalize(user.name);
+                   const opponent = isCreator ? (game.challenger || 'Gegner') : game.creator;
+                   const opponentAvatar = isCreator ? game.challengerAvatar : game.creatorAvatar;
                    const avatarSrc = opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`;
+                   
                    return (
                    <button 
                      key={game.id}
@@ -143,18 +210,20 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                </h3>
                <div className="space-y-3">
                  {myTurnGames.map(game => {
-                   const isChallengeForMe = game.target_player === user.name;
-                   const opponent = isChallengeForMe ? game.creator : (game.creator === user.name ? (game.challenger || 'Gegner') : game.creator);
-                   const opponentAvatar = isChallengeForMe ? game.creatorAvatar : (game.creator === user.name ? game.challengerAvatar : game.creatorAvatar);
+                   const isChallengeForMe = normalize(game.target_player) === normalize(user.name);
+                   const isCreator = normalize(game.creator) === normalize(user.name);
+                   const opponent = isChallengeForMe ? game.creator : (isCreator ? (game.challenger || 'Gegner') : game.creator);
+                   const opponentAvatar = isChallengeForMe ? game.creatorAvatar : (isCreator ? game.challengerAvatar : game.creatorAvatar);
                    const avatarSrc = opponentAvatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${opponent}`;
+                   
                    return (
                      <button 
                        key={game.id}
                        onClick={() => onSelectGame(game)} 
                        className={`w-full rounded-2xl p-4 flex items-center justify-between shadow-lg hover:scale-[1.02] transition-transform group
                          ${isChallengeForMe 
-                            ? 'bg-gradient-to-r from-purple-600 to-purple-800 border border-purple-400' 
-                            : 'bg-gradient-to-r from-orange-500 to-orange-600 shadow-orange-900/20'}
+                           ? 'bg-gradient-to-r from-purple-600 to-purple-800 border border-purple-400' 
+                           : 'bg-gradient-to-r from-orange-500 to-orange-600 shadow-orange-900/20'}
                        `}
                      >
                         <div className="flex items-center gap-4">
@@ -167,7 +236,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                                {isChallengeForMe ? 'DU BIST HERAUSGEFORDERT!' : 'DU BIST DRAN!'}
                              </span>
                              <span className={`${isChallengeForMe ? 'text-purple-200' : 'text-orange-200'} text-xs font-medium`}>
-                               {isChallengeForMe ? `von ${game.creator}` : (game.creator === user.name ? 'Warte auf Gegner...' : `vs ${game.creator}`)} 
+                               {isChallengeForMe ? `von ${game.creator}` : (isCreator ? 'Warte auf Gegner...' : `vs ${game.creator}`)} 
                              </span>
                           </div>
                         </div>
@@ -195,10 +264,14 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                <div className="space-y-3">
                  {waitingGames.map(game => {
                     const isChallenge = game.target_player && game.target_player.length > 0;
+                    const isArena = game.mode === 'arena';
                     
                     const createdTime = new Date(game.created_at).getTime();
+                    // Kann erstattet werden wenn Zeit abgelaufen ist
                     const canRefund = (Date.now() - createdTime) > REFUND_TIMEOUT;
-                    const isMyGame = game.creator === user.name;
+                    const isMyGame = game.mode === 'arena'
+                      ? (Array.isArray(game.participants) && game.participants.map(normalize).includes(normalize(userName)))
+                      : normalize(game.creator) === normalize(userName);
 
                     return (
                      <div key={game.id} className="w-full bg-[#161616] border border-white/5 rounded-2xl p-4 flex flex-col gap-3 opacity-90">
@@ -206,23 +279,37 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                             <div className="flex flex-col items-start">
                                <span className="text-neutral-400 font-bold uppercase text-sm flex items-center gap-2">
                                  <Clock size={16} className="text-neutral-500"/>
-                                 {isChallenge ? `Herausforderung gesendet` : `Warten...`}
+                                 {isArena ? t('arena_waiting_full') : (isChallenge ? `Herausforderung gesendet` : `Warten...`)}
                                </span>
                                <span className="text-neutral-600 text-xs mt-1">
-                                 {isChallenge ? `an ${game.target_player}` : 'Lobby'}
+                                 {isArena ? t('arena_waiting_slots', { joined: (game.participants || []).length, total: game.max_players || 2 }) : (isChallenge ? `an ${game.target_player}` : 'Lobby')}
                                </span>
                             </div>
                             <div className="flex flex-col items-end">
                                <span className="text-neutral-500 font-mono font-bold text-xs">
                                  {game.amount} Sats
                                </span>
-                               <span className="text-[10px] text-green-500/50 mt-1 uppercase tracking-wider flex items-center gap-1">
-                                 <CheckCircle size={10}/> Fertig (Score: {game.creator === user.name ? game.creator_score : game.challenger_score})
-                               </span>
+                               {/* Score Anzeige falls ich schon gespielt habe */}
+                               {isMyGame && game.creator_score !== null && (
+                                   <span className="text-[10px] text-green-500/50 mt-1 uppercase tracking-wider flex items-center gap-1">
+                                     <CheckCircle size={10}/> Dein Score: {game.creator_score}
+                                   </span>
+                               )}
                             </div>
                         </div>
 
-                        {canRefund && isMyGame ? (
+                        {/* TEILEN BUTTON - Nur wenn mein Spiel offen ist */}
+                        {game.status === 'open' && isMyGame && (
+                            <button 
+                              onClick={() => handleShareDuel(game)}
+                              className="w-full bg-white/5 border border-white/10 text-white/80 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 hover:bg-white/10 transition-all"
+                            >
+                              {t('share_duel_btn')}
+                            </button>
+                        )}
+
+                        {/* REFUND BUTTON - Nur sichtbar wenn Zeit abgelaufen & mein Spiel & noch offen */}
+                        {game.status === 'open' && isMyGame && canRefund ? (
                              <button 
                                 onClick={() => onRefund(game)}
                                 className="w-full bg-red-500/10 border border-red-500/50 text-red-500 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-all animate-pulse"
@@ -230,9 +317,12 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                                 <RefreshCcw size={14} /> Einsatz zurückfordern
                              </button>
                         ) : (
-                             isMyGame && (
-                                 <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden mt-1">
-                                     <div className="h-full bg-neutral-700 w-1/2 animate-pulse"></div>
+                             isMyGame && game.status === 'open' && (
+                                 <div className="w-full flex items-center gap-2 mt-1 opacity-30" title="Stornierung erst nach 24h möglich">
+                                     <div className="h-1 bg-neutral-800 rounded-full flex-1 overflow-hidden">
+                                          <div className="h-full bg-neutral-600 w-1/3 animate-pulse"></div>
+                                     </div>
+                                     <span className="text-[8px] text-neutral-600">24h sperre</span>
                                  </div>
                              )
                         )}
@@ -243,7 +333,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
              </div>
            )}
 
-           {/* 3. REFUNDED & BEREIT ZUM ABHOLEN (Falls man die Seite verlassen hat) */}
+           {/* 3. REFUNDED & BEREIT ZUM ABHOLEN */}
            {refundedGames.length > 0 && (
                <div className="mt-8 animate-in slide-in-from-bottom-5">
                    <h3 className="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 pl-1 flex items-center gap-2">
@@ -252,7 +342,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                    {refundedGames.map(game => (
                        <button key={game.id} onClick={() => onSelectGame(game)} className="w-full bg-red-900/10 border border-red-500/30 p-3 rounded-xl flex justify-between items-center mb-2 hover:bg-red-900/20 transition-colors">
                            <span className="text-red-500 text-xs font-bold uppercase flex items-center gap-2">
-                               <RefreshCcw size={12} className="animate-spin-slow"/> Rückerstattung #{game.id}
+                               <RefreshCcw size={12} className="animate-spin-slow"/> Rückerstattung #{game.id.slice(0,4)}
                            </span>
                            <span className="text-red-400 text-xs font-mono font-bold">{game.amount} sats {'->'}</span>
                        </button>

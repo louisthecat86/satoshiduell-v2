@@ -9,13 +9,14 @@ import { supabase, fetchProfiles } from '../services/supabase';
 const ChallengesView = ({ onAcceptChallenge, onCancel }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const userName = user?.username || user?.name || '';
 
   const [challenges, setChallenges] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const loadChallenges = async () => {
     setLoading(true);
-    if (!user?.name) {
+    if (!userName) {
       setChallenges([]);
       setLoading(false);
       return;
@@ -26,7 +27,7 @@ const ChallengesView = ({ onAcceptChallenge, onCancel }) => {
       .from('duels')
       .select('*')
       .eq('status', 'open')
-      .ilike('target_player', user.name)
+      .ilike('target_player', userName)
       .order('created_at', { ascending: false });
 
     if (data) {
@@ -53,7 +54,7 @@ const ChallengesView = ({ onAcceptChallenge, onCancel }) => {
     loadChallenges();
     const interval = setInterval(loadChallenges, 5000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [userName]);
 
   return (
     <Background>

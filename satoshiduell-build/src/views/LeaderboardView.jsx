@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
 import { Home, Swords, Loader2, Star, Crown, Medal, ArrowLeft } from 'lucide-react';
-import { fetchLeaderboard } from '../services/supabase';
+import { fetchLeaderboard, recalculateUserStats } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
 import { playSound } from '../utils/sound';
@@ -10,8 +10,10 @@ import { playSound } from '../utils/sound';
 const LeaderboardView = ({ onBack, onChallenge }) => {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const userName = user?.username || user?.name || '';
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   // Namen kürzen
   const formatName = (name) => {
@@ -32,6 +34,9 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
+      if (userName) {
+        await recalculateUserStats(userName);
+      }
       const { data } = await fetchLeaderboard();
       if (data) {
         setLeaderboard(data);
@@ -39,16 +44,16 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
       setLoading(false);
     };
     loadData();
-  }, [user]);
+  }, [userName]);
 
   // Hilfskomponente Podium
   const PodiumPlace = ({ player, rank }) => {
     if (!player) return <div className="flex-1 min-w-0" />;
     
     const isFirst = rank === 1;
-    const isMe = user && player.username === user.name;
+    const isMe = user && player.username === userName;
 
-    const size = isFirst ? "w-24 h-24" : "w-16 h-16";
+    const size = isFirst ? "w-20 h-20" : "w-14 h-14";
     const color = rank === 1 ? "text-yellow-400" : rank === 2 ? "text-slate-300" : "text-amber-600";
     const border = rank === 1 ? "border-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.4)]" : rank === 2 ? "border-slate-300" : "border-amber-600";
 
@@ -63,12 +68,12 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                 className="w-full h-full object-cover" 
             />
           </div>
-          <div className={`absolute -bottom-2 -right-1 bg-black rounded-full p-1 border ${border}`}>
-             {rank === 1 ? <Crown size={16} className={color} /> : <Medal size={16} className={color} />}
+           <div className={`absolute -bottom-2 -right-1 bg-black rounded-full p-1 border ${border}`}>
+             {rank === 1 ? <Crown size={14} className={color} /> : <Medal size={14} className={color} />}
           </div>
         </div>
 
-        <span className="text-white font-black uppercase text-[10px] mt-3 tracking-widest truncate w-full px-1 text-center">
+        <span className="text-white font-black uppercase text-[10px] mt-2 tracking-widest truncate w-full px-1 text-center">
             {formatName(player.username)} {isMe && <span className="text-orange-500">*</span>}
         </span>
         
@@ -89,7 +94,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
 
   return (
     <Background>
-      <div className="flex flex-col h-full w-full max-w-md mx-auto overflow-hidden relative">
+      <div className="flex flex-col h-[100vh] w-full max-w-md mx-auto overflow-hidden relative">
         
         {/* HEADER */}
         <div className="p-6 pb-2 relative flex items-center justify-center">
@@ -120,10 +125,10 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                <PodiumPlace player={leaderboard[2]} rank={3} />
             </div>
 
-            {/* LISTE DER RESTLICHEN SPIELER */}
+            {/* TOP 10 LISTE */}
             <div className="flex-1 overflow-y-auto px-4 pb-28 space-y-2 scrollbar-hide">
-               {leaderboard.slice(3).map((p, i) => {
-                  const isMe = user && p.username === user.name;
+              {leaderboard.slice(3, 10).map((p, i) => {
+                  const isMe = user && p.username === userName;
                   return (
                     <div 
                       key={p.username} 
@@ -168,6 +173,54 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                     </div>
                   );
                })}
+
+               {/* SUCHE */}
+               <div className="mt-6">
+                 <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Spieler suchen</label>
+                 <input
+                   value={search}
+                   onChange={(e) => setSearch(e.target.value)}
+                   placeholder="Name eingeben..."
+                   className="mt-2 w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-orange-500"
+                 />
+                 {search.trim() && (
+                   (() => {
+                     const term = search.trim().toLowerCase();
+                     const found = leaderboard.find(p => (p.username || '').toLowerCase().includes(term));
+                     if (!found) {
+                       return <p className="text-xs text-neutral-500 mt-2">Kein Spieler gefunden.</p>;
+                     }
+                     const isMe = user && found.username === userName;
+                     return (
+                       <div className="mt-3 flex items-center justify-between p-3 rounded-2xl border bg-[#161616] border-white/5">
+                         <div className="flex items-center gap-3">
+                           <div className="w-10 h-10 rounded-md bg-neutral-800 border border-white/5 overflow-hidden">
+                             <img src={found.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${found.username}`} alt={found.username} className="w-full h-full object-cover" />
+                           </div>
+                           <div className="flex flex-col">
+                             <span className="text-sm font-black uppercase text-white">{formatName(found.username)} {isMe && <span className="text-orange-500">*</span>}</span>
+                             <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">{getWinText(found.wins)}</span>
+                           </div>
+                         </div>
+                         <div className="flex items-center gap-3">
+                           <div className="text-right">
+                             <span className="block font-mono font-black text-sm text-yellow-500 leading-none">{(found.total_sats_won || 0).toLocaleString()}</span>
+                             <span className="text-[8px] font-black text-neutral-600 uppercase">Sats</span>
+                           </div>
+                           {!isMe && (
+                             <button
+                               onClick={() => onChallenge(found.username)}
+                               className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-orange-500 transition-all active:scale-90"
+                             >
+                               <Swords size={18} />
+                             </button>
+                           )}
+                         </div>
+                       </div>
+                     );
+                   })()
+                 )}
+               </div>
             </div>
           </div>
         )}

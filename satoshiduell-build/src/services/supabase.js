@@ -7,8 +7,10 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// HILFSFUNKTION: Hashing (SHA-256)
+// HILFSFUNKTIONEN
 // ==========================================
+
+// 1. Hashing (SHA-256)
 async function hashPin(pin) {
   const msgBuffer = new TextEncoder().encode(String(pin).trim());
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -16,72 +18,140 @@ async function hashPin(pin) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// 2. Normalisierung (Erzwingt Kleinschreibung)
+const toLower = (str) => (str ? str.toLowerCase().trim() : null);
+
+
 // ==========================================
-// 1. SPIELER LOGIK (AUTH)
+// 1. SPIELER LOGIK (AUTH - PROFILES)
 // ==========================================
 
+// Profil laden
 export const getPlayerByName = async (name) => {
+  const cleanName = toLower(name);
   const { data, error } = await supabase
-    .from('players')
+    .from('profiles')
     .select('*')
-    .ilike('name', name.trim())
+    .eq('username', cleanName)
     .limit(1)
     .maybeSingle();
   
   return { data, error };
 };
 
-export const createPlayer = async (name, pin) => {
-  const hashedPin = await hashPin(pin);
+// Profil über Nostr npub laden
+export const getPlayerByNpub = async (npub) => {
+  const cleanNpub = toLower(npub);
   const { data, error } = await supabase
-    .from('players')
-    .insert([{ name: name, pin: hashedPin }]) 
-    .select()
-    .single();
-
-  if (error) return { data, error };
-
-  // Ensure there is a corresponding profile row so UI (avatar, stats) works reliably
-  try {
-    await supabase
-      .from('profiles')
-      .upsert({
-        username: String(name).trim(),
-        games_played: 0,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        total_sats_won: 0,
-        last_updated: new Date()
-      });
-  } catch (e) {
-    console.error('Profile upsert error for new player:', e);
-  }
+    .from('profiles')
+    .select('*')
+    .eq('npub', cleanNpub)
+    .limit(1)
+    .maybeSingle();
 
   return { data, error };
 };
 
+// Neuen Spieler erstellen
+export const createPlayer = async (name, pin) => {
+  const cleanName = toLower(name); 
+
+  const { data: existing } = await supabase
+    .from('profiles')
+    .select('username')
+    .eq('username', cleanName)
+    .maybeSingle();
+
+  if (existing) {
+    return { data: null, error: { code: '23505', message: 'Name bereits vergeben' } };
+  }
+
+  const hashedPin = await hashPin(pin);
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .insert([{ 
+        username: cleanName, 
+        pin: hashedPin,
+        total_sats_won: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        games_played: 0,
+        avatar: null
+    }]) 
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+// Neuen Spieler mit Nostr npub erstellen (ohne PIN)
+export const createPlayerWithNpub = async (name, npub) => {
+  const cleanName = toLower(name);
+  const cleanNpub = toLower(npub);
+
+  const randomPin = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  const hashedPin = await hashPin(randomPin);
+
+  const { data: existingName } = await supabase
+    .from('profiles')
+    .select('username')
+    .eq('username', cleanName)
+    .maybeSingle();
+
+  if (existingName) {
+    return { data: null, error: { code: '23505', message: 'Name bereits vergeben' } };
+  }
+
+  const { data: existingNpub } = await supabase
+    .from('profiles')
+    .select('username')
+    .eq('npub', cleanNpub)
+    .maybeSingle();
+
+  if (existingNpub) {
+    return { data: null, error: { code: '23505', message: 'npub bereits verknüpft' } };
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .insert([{ 
+        username: cleanName, 
+        npub: cleanNpub,
+        pin: hashedPin,
+        total_sats_won: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        games_played: 0,
+        avatar: null
+    }]) 
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+// Login prüfen
 export const verifyLogin = async (name, pin) => {
+  const cleanName = toLower(name); 
+  
   const { data: user, error } = await supabase
-    .from('players')
+    .from('profiles')
     .select('*')
-    .ilike('name', name.trim())
+    .eq('username', cleanName)
     .limit(1)
     .maybeSingle();
 
-  if (error || !user) return { data: null, error };
+  if (error || !user) return { data: null, error: { message: "User nicht gefunden" } };
 
   const inputHash = await hashPin(pin);
-  const dbHash = user.pin;
-
-  if (inputHash === dbHash) {
+  
+  if (user.pin === inputHash || String(user.pin) === String(pin).trim()) {
     return { data: user, error: null };
   } else {
-    // Fallback: Falls alte User noch Klartext-PINs haben
-    if (String(pin).trim() === String(user.pin).trim()) {
-        return { data: user, error: null };
-    }
-    return { data: null, error: null };
+    return { data: null, error: { message: "Falsche PIN" } };
   }
 };
 
@@ -89,29 +159,27 @@ export const verifyLogin = async (name, pin) => {
 // 2. SPIEL LOGIK (Core)
 // ==========================================
 
-// A. Neues Duell anlegen (Status: pending_payment)
-// WICHTIG: Nimmt jetzt targetPlayer (optional) entgegen
+// A. Neues Duell anlegen
 export const createDuelEntry = async (creatorName, amount, targetPlayer = null, questionsData = null) => {
-  console.log(`📝 Erstelle Duell Eintrag für ${creatorName} mit ${amount} Sats. Target: ${targetPlayer || 'Open'}`);
+  const cleanCreator = toLower(creatorName);
+  const cleanTarget = toLower(targetPlayer);
 
-  // Falls keine Fragen mitgebracht wurden, nutze Fallback
-  let questions = questionsData || [
-      { q: "Was ist Bitcoin?", a: ["Digitales Gold", "Ein Stein", "Essen", "Auto"], c: 0 },
-      { q: "Wer ist Satoshi?", a: ["Niemand", "Craig Wright", "Unbekannt", "Elon Musk"], c: 2 },
-      { q: "Wann war der Genesis Block?", a: ["2008", "2009", "2010", "2011"], c: 1 },
-      { q: "Was ist das Lightning Network?", a: ["Ein Wetterphänomen", "Layer 2 Lösung", "Ein Videospiel", "Eine Bank"], c: 1 },
-      { q: "Wie viele Sats sind ein Bitcoin?", a: ["1000", "1 Million", "100 Millionen", "Unendlich"], c: 2 }
-  ];
+  console.log(`📝 Erstelle Duell: ${cleanCreator} vs ${cleanTarget || 'Alle'}`);
+
+  let questions = questionsData;
+  if (!questions || questions.length === 0) {
+      questions = [{ q: "Error", a: ["1","2","3","4"], c: 0 }];
+  }
 
   const { data, error } = await supabase
     .from('duels')
     .insert([{ 
-      creator: creatorName, 
+      creator: cleanCreator, 
       status: 'pending_payment', 
       amount: parseInt(amount),  
       current_pot: 0,
       questions: questions,
-      target_player: targetPlayer // <--- NEU: Speichert den Gegner (oder null)
+      target_player: cleanTarget
     }])
     .select()
     .single();
@@ -119,40 +187,75 @@ export const createDuelEntry = async (creatorName, amount, targetPlayer = null, 
   return { data, error };
 };
 
-// B. Offene Duelle laden (Lobby)
+// A2. Neues Arena-Spiel anlegen
+export const createArenaEntry = async (creatorName, amount, maxPlayers = 2, questionsData = null) => {
+  const cleanCreator = toLower(creatorName);
+
+  let questions = questionsData;
+  if (!questions || questions.length === 0) {
+      questions = [{ q: "Error", a: ["1","2","3","4"], c: 0 }];
+  }
+
+  const { data, error } = await supabase
+    .from('duels')
+    .insert([{ 
+      creator: cleanCreator,
+      status: 'pending_payment',
+      amount: parseInt(amount),
+      current_pot: 0,
+      questions: questions,
+      target_player: null,
+      mode: 'arena',
+      max_players: maxPlayers,
+      participants: [cleanCreator],
+      participant_scores: {},
+      participant_times: {}
+    }])
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+// B. Offene Duelle laden
 export const fetchOpenDuels = async (myPlayerName) => {
+  const cleanMe = toLower(myPlayerName);
+  
   const { data, error } = await supabase
     .from('duels')
     .select('*')
     .eq('status', 'open')
-    .neq('creator', myPlayerName) // Nicht meine eigenen
-    // WICHTIG: Zeige Public Games ODER Games an MICH
-    .or(`target_player.is.null,target_player.eq.${myPlayerName},target_player.ilike.${myPlayerName}`)
+    .neq('creator', cleanMe)
+    .or(`target_player.is.null,target_player.eq.${cleanMe}`)
     .order('created_at', { ascending: false });
 
   return { data, error };
 };
 
-// C. Anzahl offener Duelle zählen (FÜR DAS DASHBOARD BADGE)
+// C. Anzahl offener Duelle zählen
 export const getOpenDuelCount = async (myPlayerName) => {
+  const cleanMe = toLower(myPlayerName);
+  
   const { count, error } = await supabase
     .from('duels')
     .select('*', { count: 'exact', head: true }) 
     .eq('status', 'open')
-    .neq('creator', myPlayerName)
-    .is('target_player', null); // <--- Zählt keine privaten Challenges
+    .neq('creator', cleanMe)
+    .is('target_player', null);
 
   if (error) return 0;
   return count || 0;
 };
 
-// D. Duell beitreten (Status -> active)
+// D. Duell beitreten
 export const joinDuel = async (duelId, challengerName) => {
-  console.log(`⚔️ User ${challengerName} tritt Duell ${duelId} bei.`);
+  const cleanChallenger = toLower(challengerName);
+  console.log(`⚔️ ${cleanChallenger} tritt bei.`);
+  
   const { data, error } = await supabase
     .from('duels')
     .update({ 
-      challenger: challengerName,
+      challenger: cleanChallenger,
       status: 'active' 
     })
     .eq('id', duelId)
@@ -162,13 +265,31 @@ export const joinDuel = async (duelId, challengerName) => {
   return { data, error };
 };
 
-// E. Spiel aktivieren (Status: pending_payment -> open)
-export const activateDuel = async (duelId) => {
-  console.log(`✅ Aktiviere Duell ${duelId}...`);
-  
+// D2. Arena beitreten
+export const joinArena = async (duelId, playerName) => {
+  const cleanPlayer = toLower(playerName);
+
+  const { data: game, error: loadError } = await supabase
+    .from('duels')
+    .select('*')
+    .eq('id', duelId)
+    .single();
+
+  if (loadError || !game) return { data: null, error: loadError };
+
+  const participants = Array.isArray(game.participants) ? game.participants : [];
+  if (participants.includes(cleanPlayer)) return { data: game, error: null };
+
+  if (game.max_players && participants.length >= game.max_players) {
+    return { data: null, error: { message: 'Arena voll' } };
+  }
+
+  const updatedParticipants = [...participants, cleanPlayer];
+  const nextStatus = game.max_players && updatedParticipants.length >= game.max_players ? 'active' : game.status;
+
   const { data, error } = await supabase
     .from('duels')
-    .update({ status: 'open' }) // <--- Geändert auf 'open' damit das Dashboard es findet
+    .update({ participants: updatedParticipants, status: nextStatus })
     .eq('id', duelId)
     .select()
     .single();
@@ -176,10 +297,20 @@ export const activateDuel = async (duelId) => {
   return { data, error };
 };
 
-// F. Ergebnisse speichern (MIT STATUS UPDATE)
+// E. Spiel aktivieren
+export const activateDuel = async (duelId) => {
+  const { data, error } = await supabase
+    .from('duels')
+    .update({ status: 'open' })
+    .eq('id', duelId)
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+// F. Ergebnisse speichern
 export const submitGameResult = async (gameId, role, score, time) => {
-  console.log(`💾 Speichere Ergebnis für ${role}: Score ${score}, Time ${time}`);
-  
   const updateData = {};
   if (role === 'creator') {
     updateData.creator_score = score;
@@ -189,7 +320,6 @@ export const submitGameResult = async (gameId, role, score, time) => {
     updateData.challenger_time = time;
   }
 
-  // 1. Ergebnis schreiben
   const { data: game, error } = await supabase
     .from('duels')
     .update(updateData)
@@ -199,9 +329,8 @@ export const submitGameResult = async (gameId, role, score, time) => {
 
   if (error) return { data: null, error };
 
-  // 2. Prüfen: Haben jetzt BEIDE gespielt?
   if (game.creator_score !== null && game.challenger_score !== null) {
-      console.log("🏁 Beide haben gespielt -> Setze Status auf 'finished'");
+      console.log("🏁 Spiel beendet.");
       const { data: finishedGame, error: finishError } = await supabase
         .from('duels')
         .update({ status: 'finished' })
@@ -215,7 +344,58 @@ export const submitGameResult = async (gameId, role, score, time) => {
   return { data: game, error: null };
 };
 
-// G. Status eines Spiels abrufen
+// F2. Arena-Ergebnis speichern
+export const submitArenaResult = async (gameId, playerName, score, time) => {
+  const cleanPlayer = toLower(playerName);
+
+  const { data: game, error: loadError } = await supabase
+    .from('duels')
+    .select('*')
+    .eq('id', gameId)
+    .single();
+
+  if (loadError || !game) return { data: null, error: loadError };
+
+  const scores = { ...(game.participant_scores || {}) };
+  const times = { ...(game.participant_times || {}) };
+
+  scores[cleanPlayer] = score;
+  times[cleanPlayer] = time;
+
+  const participants = Array.isArray(game.participants) ? game.participants : [];
+  const hasAllScores = participants.length > 0 && participants.every(p => scores[p] !== undefined && scores[p] !== null);
+
+  let updatePayload = { participant_scores: scores, participant_times: times };
+
+  if (game.max_players && participants.length >= game.max_players && hasAllScores) {
+    // Winner bestimmen
+    let winner = null;
+    participants.forEach(p => {
+      if (!winner) {
+        winner = p;
+        return;
+      }
+      const ws = scores[winner];
+      const wt = times[winner];
+      const cs = scores[p];
+      const ct = times[p];
+      if (cs > ws || (cs === ws && ct < wt)) winner = p;
+    });
+
+    updatePayload = { ...updatePayload, status: 'finished', winner };
+  }
+
+  const { data, error } = await supabase
+    .from('duels')
+    .update(updatePayload)
+    .eq('id', gameId)
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+// G. Status abrufen
 export const getGameStatus = async (gameId) => {
   const { data, error } = await supabase
     .from('duels')
@@ -225,19 +405,20 @@ export const getGameStatus = async (gameId) => {
   return { data, error };
 };
 
-// H. Alle Spiele eines Users laden (für Dashboard Liste & Active Games)
+// H. User Games laden
 export const fetchUserGames = async (playerName) => {
+  const cleanMe = toLower(playerName);
+  const filter = `creator.eq.${cleanMe},challenger.eq.${cleanMe},target_player.eq.${cleanMe}`;
+
   const { data, error } = await supabase
     .from('duels')
     .select('*')
-    // Filter: Creator = ich ODER Challenger = ich ODER Target = ich
-    .or(`creator.eq.${playerName},challenger.eq.${playerName},target_player.eq.${playerName}`)
+    .or(filter)
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (error || !data) return { data, error };
 
-  // Enrich games with avatars from profiles (creator & challenger)
   try {
     const usernames = Array.from(new Set(data.flatMap(g => [g.creator, g.challenger]).filter(Boolean)));
     if (usernames.length > 0) {
@@ -245,242 +426,204 @@ export const fetchUserGames = async (playerName) => {
         .from('profiles')
         .select('username, avatar')
         .in('username', usernames);
+      
       const profileMap = {};
-      profiles?.forEach(p => profileMap[p.username] = p.avatar || null);
+      profiles?.forEach(p => {
+          if(p.username) profileMap[p.username.toLowerCase()] = p.avatar || null;
+      });
 
       const enriched = data.map(g => ({
         ...g,
-        creatorAvatar: profileMap[g.creator] || null,
-        challengerAvatar: profileMap[g.challenger] || null
+        creatorAvatar: profileMap[(g.creator || "").toLowerCase()] || null,
+        challengerAvatar: profileMap[(g.challenger || "").toLowerCase()] || null
       }));
 
       return { data: enriched, error: null };
     }
   } catch (e) {
-    console.error('Error enriching games with avatars:', e);
+    console.error('Error enriching games:', e);
   }
 
   return { data, error };
 };
 
-// I. Gewinn als abgeholt markieren (ROBUSTE VERSION)
-export const markGameAsClaimed = async (gameId) => {
-  console.log(`💾 DB UPDATE: Setze Spiel ${gameId} auf 'claimed'...`);
-  
-  // Wir updaten BEIDE Spalten, um sicherzugehen
+// I. Gewinn abholen
+export const markGameAsClaimed = async (gameId, payoutAmount = null, donationAmount = null) => {
+  const updateData = { is_claimed: true, claimed: true };
+  if (payoutAmount !== null) updateData.payout_amount = payoutAmount;
+  if (donationAmount !== null) updateData.donation_amount = donationAmount;
+
   const { data, error } = await supabase
     .from('duels')
-    .update({ 
-      is_claimed: true, 
-      claimed: true 
-    })
+    .update(updateData)
     .eq('id', gameId)
     .select()
     .single();
 
-  if (error) console.error("❌ Fehler beim Speichern von claimed:", error);
-  else console.log("✅ DB Update erfolgreich:", data);
-
   return { data, error };
 };
 
 // ==========================================
-// 3. LEGACY / UTILS
+// 3. STATISTIK & HISTORY
 // ==========================================
 
-export const findOrCreateGame = async (playerName) => {
-  try {
-    const { data: openDuel } = await supabase
-      .from('duels')
-      .select('*')
-      .eq('status', 'open') // <--- Angepasst auf 'open'
-      .neq('creator', playerName) 
-      .is('target_player', null) // Keine privaten Games matchen
-      .limit(1)
-      .maybeSingle();
-
-    if (openDuel) {
-      const { data: joinedDuel, error: joinError } = await supabase
-        .from('duels')
-        .update({ challenger: playerName, status: 'active' })
-        .eq('id', openDuel.id)
-        .select()
-        .single();
-      if (joinError) throw joinError;
-      return { game: joinedDuel, role: 'challenger' };
-    }
-
-    const dummyQuestions = [
-      { q: "Was ist Bitcoin?", a: ["Digitales Gold", "Ein Stein", "Essen", "Auto"], c: 0 },
-      { q: "Wer ist Satoshi?", a: ["Niemand", "Craig Wright", "Unbekannt", "Elon Musk"], c: 2 },
-      { q: "Wann war der Genesis Block?", a: ["2008", "2009", "2010", "2011"], c: 1 }
-    ];
-
-    const { data: newDuel, error: createError } = await supabase
-      .from('duels')
-      .insert([{ 
-        creator: playerName, 
-        status: 'open', // <--- Angepasst auf 'open'
-        rounds: 3, 
-        amount: 21, 
-        current_pot: 0, 
-        questions: dummyQuestions 
-      }])
-      .select()
-      .single();
-
-    if (createError) throw createError;
-    return { game: newDuel, role: 'creator' };
-
-  } catch (err) {
-    console.error("Matchmaking Fehler:", err);
-    return { game: null, error: err };
-  }
-};
-
-// ==========================================
-// STATISTIK & HISTORY (Bereinigte Version)
-// ==========================================
-
-// 1. HISTORY: Alle Spiele eines Users laden (für die Historie-Liste)
 export const fetchUserHistory = async (username) => {
-  const { data, error } = await supabase
+  const cleanMe = toLower(username);
+  const filter = `creator.eq.${cleanMe},challenger.eq.${cleanMe}`;
+  const { data: standard, error: standardError } = await supabase
     .from('duels')
     .select('*')
-    // Suche Spiele wo Creator ODER Challenger der Username ist
-    .or(`creator.eq.${username},challenger.eq.${username}`)
-    .order('created_at', { ascending: false }); // Neueste zuerst
+    .or(filter)
+    .order('created_at', { ascending: false });
 
-  return { data, error };
+  const { data: arena, error: arenaError } = await supabase
+    .from('duels')
+    .select('*')
+    .eq('mode', 'arena')
+    .contains('participants', [cleanMe])
+    .order('created_at', { ascending: false });
+
+  if (standardError || arenaError) return { data: standard || arena || [], error: standardError || arenaError };
+
+  const merged = [...(standard || []), ...(arena || [])];
+  return { data: merged, error: null };
 };
 
-// 2. STATISTIK BERECHNEN: Repariert und aktualisiert die Stats eines Users
 export const recalculateUserStats = async (username) => {
-  console.log(`🔄 Berechne Statistik neu für: ${username}`);
-
-  // Nur beendete Spiele holen
-  const { data: games, error } = await supabase
+  const cleanMe = toLower(username);
+  const filter = `creator.eq.${cleanMe},challenger.eq.${cleanMe}`;
+  const { data: duels, error } = await supabase
     .from('duels')
     .select('*')
-    .or(`creator.eq.${username},challenger.eq.${username}`)
+    .or(filter)
     .eq('status', 'finished');
 
-  if (error) {
-      console.error("Fehler beim Laden der Historie:", error);
-      return null;
+  const { data: arenas, error: arenaError } = await supabase
+    .from('duels')
+    .select('*')
+    .eq('mode', 'arena')
+    .eq('status', 'finished')
+    .contains('participants', [cleanMe]);
+
+  if (error || arenaError) {
+    console.error('recalculateUserStats: fetch games error', error);
+    return null;
   }
 
-  let wins = 0;
-  let losses = 0;
-  let draws = 0;
-  let sats = 0;
+  const games = [...(duels || []), ...(arenas || [])];
+
+  let wins = 0, losses = 0, draws = 0, sats = 0;
 
   games.forEach(g => {
-    const isCreator = g.creator === username;
+    if (g.mode === 'arena') {
+      const winner = g.winner;
+      const iWon = winner && winner === cleanMe;
+      if (iWon) wins++; else losses++;
+      const claimed = g.is_claimed === true || g.claimed === true;
+      if (iWon && claimed) {
+        const totalPlayers = g.max_players || (g.participants || []).length || 2;
+        sats += (g.amount * totalPlayers);
+      }
+      return;
+    }
+
+    const isCreator = g.creator === cleanMe;
     const myScore = isCreator ? g.creator_score : g.challenger_score;
     const opScore = isCreator ? g.challenger_score : g.creator_score;
     const myTime = isCreator ? g.creator_time : g.challenger_time;
     const opTime = isCreator ? g.challenger_time : g.creator_time;
 
-    // Logik: Wer hat gewonnen?
-    if (myScore > opScore) {
-        wins++;
-        sats += (g.amount * 2); 
-    } else if (opScore > myScore) {
-        losses++;
-    } else {
-        // Bei gleichem Score entscheidet die Zeit
-        if (myTime < opTime) {
-            wins++;
-            sats += (g.amount * 2);
-        } else if (opTime < myTime) {
-            losses++;
-        } else {
-            draws++;
-        }
+    const iWon = myScore > opScore || (myScore === opScore && myTime < opTime);
+    const iLost = opScore > myScore || (myScore === opScore && opTime < myTime);
+    const isDraw = myScore === opScore && myTime === opTime;
+
+    if (iWon) wins++;
+    else if (iLost) losses++;
+    else if (isDraw) draws++;
+
+    // Count sats only when the win was actually claimed
+    const claimed = g.is_claimed === true || g.claimed === true;
+    if (iWon && claimed) {
+      if (g.payout_amount !== null && g.payout_amount !== undefined) {
+        sats += g.payout_amount;
+      } else {
+        sats += (g.amount * 2);
+      }
     }
   });
 
-  // Ergebnis in die 'profiles' Tabelle speichern
   const stats = {
-      username: username,
       games_played: games.length,
-      wins,
-      losses,
-      draws,
+      wins, losses, draws,
       total_sats_won: sats,
       last_updated: new Date()
   };
 
-  const { error: upsertError } = await supabase
+  const { error: updateError } = await supabase
     .from('profiles')
-    .upsert(stats);
-
-  if (upsertError) console.error("Fehler beim Speichern der Stats:", upsertError);
-  
+    .update(stats)
+    .eq('username', cleanMe);
+  if (updateError) {
+    console.error('recalculateUserStats: update error', updateError);
+    return null;
+  }
   return stats;
 };
 
-// 3. BESTENLISTE LADEN (Sortiert nach SATS!)
 export const fetchLeaderboard = async () => {
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .order('total_sats_won', { ascending: false }) 
         .limit(50);
-    
     return { data, error };
 };
 
-// 4. PROFIL LADEN (Für Dashboard Anzeige)
 export const fetchUserProfile = async (username) => {
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('username', username)
+        .eq('username', toLower(username))
         .single();
-    
     return { data, error };
 };
 
-// 5. MULTIPLE PROFILE FETCH (Utility)
 export const fetchProfiles = async (usernames) => {
     if (!Array.isArray(usernames) || usernames.length === 0) return { data: [], error: null };
+    const cleanNames = usernames.map(n => toLower(n));
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .in('username', usernames);
+        .in('username', cleanNames);
     return { data, error };
 };
 
-// ---------------------------
-// QUESTIONS & SUBMISSIONS
-// ---------------------------
+// ==========================================
+// 4. FRAGEN & ADMIN
+// ==========================================
+
+export const fetchAllQuestions = async () => {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('*')
+    .order('created_at', { ascending: false });
+  return { data, error };
+};
+
+export const upsertQuestions = async (questionsArray) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .upsert(questionsArray, { onConflict: 'id' }) 
+    .select();
+  return { data, error };
+};
+
 export const fetchQuestions = async (limit = 500) => {
   const { data, error } = await supabase
     .from('questions')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
-  return { data, error };
-};
-
-export const fetchQuestionById = async (id) => {
-  if (!id) return { data: null, error: new Error('No id') };
-  const { data, error } = await supabase
-    .from('questions')
-    .select('*')
-    .eq('id', id)
-    .single();
-  return { data, error };
-};
-
-export const fetchQuestionsByCreatedAt = async (created_at) => {
-  const { data, error } = await supabase
-    .from('questions')
-    .select('*')
-    .eq('created_at', created_at)
-    .order('language', { ascending: true });
   return { data, error };
 };
 
@@ -495,77 +638,6 @@ export const createQuestion = async ({ language = 'de', question, options = [], 
   return { data, error };
 };
 
-export const deleteAllQuestions = async () => {
-  const { data, error } = await supabase
-    .from('questions')
-    .delete();
-  return { data, error };
-};
-
-export const findQuestionByLanguageAndQuestion = async (language, question) => {
-  const { data, error } = await supabase
-    .from('questions')
-    .select('*')
-    .eq('language', language)
-    .ilike('question', question)
-    .limit(1)
-    .maybeSingle();
-  return { data, error };
-};
-
-export const deleteQuestionsByCreatedAt = async (created_at) => {
-  if (!created_at) return { data: null, error: new Error('no created_at') };
-  const { data, error } = await supabase
-    .from('questions')
-    .delete()
-    .eq('created_at', created_at);
-  return { data, error };
-};
-
-export const updateQuestion = async (id, updateData) => {
-  // Perform update without requesting a returned representation
-  // Some Supabase REST setups return 406 or an empty body when asking for a representation.
-  const { data: upData, error: upErr } = await supabase
-    .from('questions')
-    .update(updateData)
-    .eq('id', id);
-
-  // Try to fetch the row after the update to confirm persistence.
-  try {
-    const { data: row, error: rowErr } = await supabase
-      .from('questions')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    // Log immediate comparison
-    try {
-      console.log('updateQuestion: immediate fetch after update', { id, updateData, dbRow: row });
-    } catch (e) {}
-
-    // Schedule delayed checks to detect later overwrites (1s, 3s, 6s)
-    [1000, 3000, 6000].forEach(delay => {
-      setTimeout(async () => {
-        try {
-          const { data: later, error: laterErr } = await supabase
-            .from('questions')
-            .select('*')
-            .eq('id', id)
-            .single();
-          console.log(`updateQuestion: delayed check +${delay}ms`, { id, later, laterErr });
-        } catch (e) {
-          console.warn('updateQuestion: delayed check failed', e);
-        }
-      }, delay);
-    });
-
-    // Prefer returning the fetched row (if available) and any errors encountered.
-    return { data: row ?? upData, error: rowErr || upErr };
-  } catch (e) {
-    return { data: upData, error: upErr };
-  }
-};
-
 export const deleteQuestion = async (id) => {
   const { data, error } = await supabase
     .from('questions')
@@ -574,19 +646,172 @@ export const deleteQuestion = async (id) => {
   return { data, error };
 };
 
-export const fetchSubmissions = async (status = 'pending') => {
+export const deleteAllQuestions = async () => {
+  const { data, error } = await supabase
+    .from('questions')
+    .delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
+  return { data, error };
+};
+
+export const fetchAllDuels = async (limit = 100) => {
+  const { data, error } = await supabase
+    .from('duels')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  return { data, error };
+};
+
+export const updateQuestion = async (id, updateData) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .update(updateData)
+    .eq('id', id)
+    .select();
+  return { data, error };
+};
+
+export const fetchQuestionById = async (id) => {
+  return await supabase.from('questions').select('*').eq('id', id).single();
+};
+
+export const fetchQuestionsByCreatedAt = async (date) => {
+  return await supabase.from('questions').select('*').eq('created_at', date);
+};
+
+export const findQuestionByLanguageAndQuestion = async (lang, q) => {
+  return await supabase.from('questions').select('*').eq('language', lang).ilike('question_de', q).maybeSingle();
+};
+
+export const deleteQuestionsByCreatedAt = async (date) => {
+  return await supabase.from('questions').delete().eq('created_at', date);
+};
+
+// ==========================================
+// 5. USER SETTINGS
+// ==========================================
+
+export const updateUserPin = async (username, newPin) => {
+  const hashedPin = await hashPin(newPin);
+  const { error } = await supabase
+    .from('profiles')
+    .update({ pin: hashedPin })
+    .eq('username', toLower(username))
+    .select();
+
+  return !error;
+};
+
+export const uploadUserAvatar = async (username, file) => {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const cleanUsername = toLower(username).replace(/[^a-z0-9]/g, '');
+    const fileName = `${cleanUsername}_${Date.now()}.${fileExt}`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(fileName, file, { cacheControl: '3600', upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+    const publicUrl = data.publicUrl;
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ avatar: publicUrl })
+      .eq('username', toLower(username));
+
+    if (updateError) throw updateError;
+
+    return publicUrl;
+  } catch (error) {
+    console.error("Avatar Upload Error:", error);
+    return null;
+  }
+};
+
+// ==========================================
+// 6. GAME FRAGEN
+// ==========================================
+export const fetchGameQuestions = async (count = 5, lang = 'de') => {
+  console.log(`🎲 Lade ${count} Fragen für Sprache '${lang}'...`);
+
+  try {
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .limit(100);
+
+    if (error || !data || data.length === 0) {
+      console.warn("⚠️ Keine Fragen in DB gefunden! Nutze Fallback.", error);
+      return [
+        { id: 'err1', q: "Fehler: Keine Fragen gefunden", a: ["Ok", "Naja", "Schlecht", "Hilfe"], c: 0 },
+        { id: 'err2', q: "Bitte Admin fragen", a: ["Mach ich", "Später", "Nie", "Was?"], c: 0 },
+        { id: 'err3', q: "DB leer?", a: ["Ja", "Nein", "Vielleicht", "42"], c: 0 }
+      ];
+    }
+
+    const shuffled = [...data].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, count);
+
+    const gameQuestions = selected.map(q => {
+      const text = (lang === 'de' ? q.question_de : null) || 
+                   (lang === 'en' ? q.question_en : null) || 
+                   (lang === 'es' ? q.question_es : null) || 
+                   q.question_de || "Frage ohne Text";
+
+      const answers = [
+        (lang === 'de' ? q.option_de_1 : null) || q.option_en_1 || q.option_de_1 || "A",
+        (lang === 'de' ? q.option_de_2 : null) || q.option_en_2 || q.option_de_2 || "B",
+        (lang === 'de' ? q.option_de_3 : null) || q.option_en_3 || q.option_de_3 || "C",
+        (lang === 'de' ? q.option_de_4 : null) || q.option_en_4 || q.option_de_4 || "D"
+      ];
+
+      const rawCorrect = q.correct_index ?? 0;
+      const normalizedCorrect = rawCorrect >= 0 && rawCorrect <= 3
+        ? rawCorrect
+        : Math.max(0, Math.min(3, rawCorrect - 1));
+
+      return {
+        id: q.id,
+        q: text,
+        a: answers,
+        c: normalizedCorrect
+      };
+    });
+
+    return gameQuestions;
+
+  } catch (err) {
+    console.error("Critical Error in fetchGameQuestions:", err);
+    return [{ id: 'crash', q: "Kritischer Fehler", a: ["1", "2", "3", "4"], c: 0 }];
+  }
+};
+
+// ==========================================
+// 7. SUBMISSIONS (DER FEHLENDE TEIL)
+// ==========================================
+
+export const fetchSubmissions = async () => {
   const { data, error } = await supabase
     .from('question_submissions')
     .select('*')
-    .order('created_at', { ascending: false })
-    .eq('status', status);
+    .order('created_at', { ascending: false });
   return { data, error };
 };
 
 export const createSubmission = async ({ submitter, language = 'de', question, options = [], correct = 0, comment = '' }) => {
+  const answerText = Array.isArray(options) && options.length > 0
+    ? (options[correct] || options[0])
+    : null;
+
+  const payload = { submitter, language, question, options, correct, answer: answerText };
+  if (comment && comment.trim().length > 0) payload.comment = comment;
+
   const { data, error } = await supabase
     .from('question_submissions')
-    .insert([{ submitter, language, question, options, correct, comment }])
+    .insert([payload])
     .select()
     .single();
   return { data, error };
@@ -602,65 +827,10 @@ export const updateSubmissionStatus = async (id, status) => {
   return { data, error };
 };
 
-// ADMIN: Fetch all duels/games for overview
-export const fetchAllDuels = async (limit = 100) => {
+export const deleteSubmission = async (id) => {
   const { data, error } = await supabase
-    .from('duels')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
+    .from('question_submissions')
+    .delete()
+    .eq('id', id);
   return { data, error };
-};
-
-// --- USER & SETTINGS ---
-
-export const updateUserPin = async (username, newPin) => {
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ pin: newPin })
-    .eq('username', username)
-    .select();
-
-  if (error) {
-    console.error("Error updating PIN:", error);
-    return false;
-  }
-  return true;
-};
-
-export const uploadUserAvatar = async (username, file) => {
-  try {
-    const fileExt = file.name.split('.').pop();
-    
-    // Dateinamen säubern (nur Buchstaben/Zahlen)
-    const cleanUsername = username.replace(/[^a-zA-Z0-9]/g, '');
-    const fileName = `${cleanUsername}_${Date.now()}.${fileExt}`;
-    
-    // 1. Upload
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(fileName, file, {
-        cacheControl: '3600',
-        upsert: true
-      });
-
-    if (uploadError) throw uploadError;
-
-    // 2. URL holen
-    const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
-    const publicUrl = data.publicUrl;
-
-    // 3. Profil Update (HIER WAR DER FEHLER)
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ avatar: publicUrl })
-      .eq('username', username); // <--- HIER stand vorher 'name', es muss 'username' heißen!
-
-    if (updateError) throw updateError;
-
-    return publicUrl;
-  } catch (error) {
-    console.error("Avatar Upload Error:", error);
-    return null;
-  }
 };

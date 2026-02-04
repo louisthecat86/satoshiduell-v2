@@ -69,7 +69,7 @@ export const connectNostrExtension = async () => {
  * @returns {string} Amber Login URL
  */
 export const createAmberLoginUrl = (callbackUrl) => {
-  const intentUrl = `intent:#Intent;scheme=nostrsigner;S.compressionType=none;S.returnType=signature;S.type=get_public_key;S.callbackUrl=${encodeURIComponent(callbackUrl)};end`;
+  const intentUrl = `intent:#Intent;scheme=nostrsigner;S.compressionType=none;S.returnType=public_key;S.type=get_public_key;S.callbackUrl=${encodeURIComponent(callbackUrl)};end`;
   return intentUrl;
 };
 

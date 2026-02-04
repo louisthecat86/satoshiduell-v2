@@ -8,3 +8,11 @@ body {
   margin: 0;
   padding: 0;
 }
+
+html, body, #root {
+  height: 100vh; /* Zwingt die App auf volle Bildschirmhöhe */
+  width: 100vw;
+  overflow: hidden; /* Verhindert das Scrollen der ganzen Seite */
+  margin: 0;
+  padding: 0;
+}

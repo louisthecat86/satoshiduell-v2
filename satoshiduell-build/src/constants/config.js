@@ -26,12 +26,13 @@ export const NOSTR_CONFIG = {
   ],
 };
 
+const BASE_URL = import.meta.env.BASE_URL || '/';
+
 export const SOUND_FILES = {
-  click: '/click.mp3',
-  correct: '/correct.mp3',
-  // Einige Uploads nutzten 'Wrong.mp3' mit Großbuchstaben – unterstütze beides via existierender Datei
-  wrong: '/Wrong.mp3',
-  tick: '/tick.mp3',
+  click: `${BASE_URL}click.mp3`,
+  correct: `${BASE_URL}correct.mp3`,
+  wrong: `${BASE_URL}wrong.mp3`,
+  tick: `${BASE_URL}tick.mp3`,
 };
 
 export const VIBRATION_PATTERNS = {

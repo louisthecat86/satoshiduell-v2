@@ -9,6 +9,7 @@ import { useAuth } from '../hooks/useAuth';
 const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const userName = user?.username || user?.name || '';
   
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,14 +18,14 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
   const loadGames = async () => {
     setLoading(true);
     // Falls kein eingelogger User vorhanden ist, breche früh ab
-    if (!user?.name) {
+    if (!userName) {
       setGames([]);
       setLoading(false);
       return;
     }
 
     // Wir übergeben den eigenen Namen, damit wir unsere eigenen Spiele nicht sehen
-    const { data } = await fetchOpenDuels(user.name);
+    const { data } = await fetchOpenDuels(userName);
     if (data) {
       // Lade zugehörige Profile (creator + target_player)
       const usernames = Array.from(new Set(data.flatMap(g => [g.creator, g.target_player]).filter(Boolean)));
@@ -41,10 +42,18 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
       // Falls nur Challenges angezeigt werden sollen, filtere auf target_player === mein Benutzername (case-insensitive)
       // Ansonsten: nur PUBLIC GAMES anzeigen (target_player === null)
       const filtered = showChallengesOnly
-        ? enriched.filter(g => g.target_player && g.target_player.toLowerCase() === user.name.toLowerCase())
-        : enriched.filter(g => !g.target_player || g.target_player === null);
+        ? enriched.filter(g => g.target_player && g.target_player.toLowerCase() === userName.toLowerCase())
+        : enriched.filter(g => (!g.target_player || g.target_player === null));
 
-      setGames(filtered);
+      const arenaFiltered = filtered.filter(g => {
+        if (g.mode !== 'arena') return true;
+        const participants = Array.isArray(g.participants) ? g.participants : [];
+        const maxPlayers = g.max_players || 2;
+        const alreadyJoined = participants.includes(userName.toLowerCase());
+        return participants.length < maxPlayers && !alreadyJoined;
+      });
+
+      setGames(arenaFiltered);
     } else {
       setGames([]);
     }
@@ -56,7 +65,7 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
     // Auto-Refresh alle 5 Sekunden, damit man neue Spiele sieht
     const interval = setInterval(loadGames, 5000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [userName]);
 
   return (
     <Background>
@@ -103,7 +112,11 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
           {games.map((game) => (
             <div 
               key={game.id} 
-              className="bg-[#161616] border border-white/5 rounded-2xl p-4 flex items-center justify-between shadow-lg group hover:border-orange-500/50 hover:bg-[#1a1a1a] transition-all animate-in fade-in slide-in-from-bottom-2 duration-300"
+              className={`border rounded-2xl p-4 flex items-center justify-between shadow-lg group transition-all animate-in fade-in slide-in-from-bottom-2 duration-300
+                ${game.mode === 'arena'
+                  ? 'bg-yellow-900/10 border-yellow-500/40 hover:border-yellow-400 hover:bg-yellow-900/20'
+                  : 'bg-[#161616] border-white/5 hover:border-orange-500/50 hover:bg-[#1a1a1a]'
+                }`}
             >
               {/* Infos (Avatar + Name + Betrag) */}
               <div className="flex items-center gap-4">
@@ -116,20 +129,31 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
                 </div>
                 
                 <div className="flex flex-col">
-                  <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Gegner</span>
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">
+                    {game.mode === 'arena' ? t('lobby_arena') : t('lobby_opponent')}
+                  </span>
                   <span className="text-white font-black uppercase text-lg leading-none truncate max-w-[120px]">
                     {game.creator}
                   </span>
                   <span className="text-orange-500 font-bold text-xs mt-1 bg-orange-500/10 px-2 py-0.5 rounded w-fit">
                     {game.amount} SATS
                   </span>
+                  {game.mode === 'arena' && (
+                    <span className="text-yellow-400 text-[10px] font-bold mt-1">
+                      {t('lobby_arena_slots', { joined: (game.participants || []).length, total: game.max_players || 2 })}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {/* Action Button */}
               <Button 
                 onClick={() => onJoinDuel(game)} 
-                className="px-5 py-3 bg-white text-black hover:bg-orange-500 hover:text-white text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all shadow-lg hover:shadow-orange-500/20"
+                className={`px-5 py-3 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all shadow-lg
+                  ${game.mode === 'arena'
+                    ? 'bg-yellow-400 text-black hover:bg-yellow-300 hover:text-black'
+                    : 'bg-white text-black hover:bg-orange-500 hover:text-white hover:shadow-orange-500/20'
+                  }`}
               >
                 {t('lobby_fight')} <Swords size={16} />
               </Button>

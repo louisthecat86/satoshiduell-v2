@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
-import { ArrowRight, X, Swords } from 'lucide-react'; // Swords Icon dazu
+import { ArrowRight, X, Swords, Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
+import { useAuth } from '../hooks/useAuth';
+// WICHTIG: Hier importieren wir die Logik
+import { createDuelEntry, fetchGameQuestions } from '../services/supabase';
 
-// NEU: targetPlayer Prop hinzugefügt
 const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
   const { t } = useTranslation();
+  const { user } = useAuth(); // User für den Erstellernamen holen
+
   const [amount, setAmount] = useState(''); 
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   const handleInputChange = (e) => {
     let val = e.target.value.replace(/\D/g, ''); 
@@ -16,16 +22,53 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
     setAmount(val);
   };
 
-  const handleConfirm = (e) => {
+  // --- DIE NEUE LOGIK ---
+  const handleConfirm = async (e) => {
     e.preventDefault();
-    if (!amount || Number(amount) === 0) return;
+    if (!amount || Number(amount) === 0 || loading) return;
     
-    // Wir übergeben hier den Betrag UND den targetPlayer (falls vorhanden)
-    // Damit die App.jsx weiß, dass es eine Challenge ist.
-    onConfirm(parseInt(amount), targetPlayer);
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+        console.log("🎲 Hole neue Fragen aus DB...");
+        
+        // 1. Fragen laden (sicher, ohne Rekursion)
+        const questions = await fetchGameQuestions(5, 'de');
+
+        if (!questions || questions.length === 0) {
+            throw new Error("Fehler: Keine Fragen geladen.");
+        }
+
+        console.log("⚔️ Erstelle Duell...");
+
+        // Sicherheitscheck für Username
+        const creatorName = user?.username || user?.name || "Unbekannt";
+
+        // 2. Duell in DB schreiben
+        const { data, error } = await createDuelEntry(
+            creatorName, 
+            parseInt(amount), 
+            targetPlayer || null, 
+            questions
+        );
+
+        if (error) throw error;
+
+        // 3. ERFOLG: Wir rufen onConfirm mit der ID auf
+        // Die App.jsx wechselt dann zur Invoice-Ansicht
+        if (onConfirm) {
+            onConfirm(data.id); 
+        }
+
+    } catch (err) {
+        console.error("Fehler beim Erstellen:", err);
+        setErrorMsg("Fehler beim Erstellen des Spiels.");
+    } finally {
+        setLoading(false);
+    }
   };
 
-  // Hilfsfunktion zum Kürzen langer Namen
   const formatName = (name) => {
     if (!name) return '';
     if (name.length > 16) return `${name.substring(0, 6)}...${name.slice(-4)}`;
@@ -53,7 +96,7 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
               {targetPlayer ? 'CHALLENGE' : t('create_title')}
             </h2>
 
-            {/* NEU: Anzeige des Gegners, falls vorhanden */}
+            {/* Anzeige des Gegners, falls vorhanden */}
             {targetPlayer && (
               <div className="mb-8 flex flex-col items-center animate-in fade-in zoom-in duration-300">
                   <div className="text-neutral-500 text-[10px] uppercase font-bold tracking-widest mb-2">GEGEN</div>
@@ -92,20 +135,29 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
             </div>
 
             {/* Hinweis Text */}
-            <div className="w-full max-w-[320px] text-right mb-10 pr-2">
+            <div className="w-full max-w-[320px] text-right mb-6 pr-2">
               <span className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest">
                 {t('create_max_hint')}
               </span>
             </div>
 
+            {/* Fehler Anzeige (NEU) */}
+            {errorMsg && (
+                <div className="mb-6 p-3 bg-red-500/20 border border-red-500/50 rounded-xl flex items-center gap-2 text-red-200 text-xs font-bold animate-in fade-in">
+                    <AlertTriangle size={16} /> {errorMsg}
+                </div>
+            )}
+
             {/* Button */}
             <Button 
               type="submit"
               variant="primary" 
-              disabled={!amount || Number(amount) === 0}
-              className="w-full max-w-[320px] py-4 text-lg font-black italic tracking-wider flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:shadow-[0_0_30px_rgba(249,115,22,0.6)] transition-all transform active:scale-95"
+              disabled={!amount || Number(amount) === 0 || loading}
+              className="w-full max-w-[320px] py-4 text-lg font-black italic tracking-wider flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:shadow-[0_0_30px_rgba(249,115,22,0.6)] transition-all transform active:scale-95 disabled:opacity-50 disabled:scale-100"
             >
-              {targetPlayer ? (
+              {loading ? (
+                 <><Loader2 className="animate-spin" size={24}/> LADE...</>
+              ) : targetPlayer ? (
                  <> <Swords size={20} className="mr-1"/> HERAUSFORDERN </> 
               ) : (
                  <> {t('btn_start')} <ArrowRight size={20} /> </>

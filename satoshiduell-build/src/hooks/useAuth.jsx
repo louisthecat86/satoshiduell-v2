@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 // WICHTIG: 'supabase' Client mit importieren!
-import { supabase, verifyLogin, createPlayer } from '../services/supabase';
+import { supabase, verifyLogin, createPlayer, getPlayerByNpub, createPlayerWithNpub } from '../services/supabase';
 
 const AuthContext = createContext();
 
@@ -8,6 +8,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [pendingNpub, setPendingNpub] = useState(() => localStorage.getItem('satoshi_pending_npub'));
 
   // Beim Start: Prüfen ob User im LocalStorage ist
   useEffect(() => {
@@ -31,7 +32,7 @@ export const AuthProvider = ({ children }) => {
         console.log("✅ Login erfolgreich!");
         saveUser(existingUser);
         // Nach dem Speichern direkt das Profile holen, damit z.B. das Avatar sichtbar ist
-        await refreshUser(existingUser.name);
+        await refreshUser(existingUser.username);
         return true;
       }
 
@@ -51,7 +52,7 @@ export const AuthProvider = ({ children }) => {
         console.log("🎉 Neuer Spieler registriert!");
         saveUser(newUser);
         // Profile sollte beim Erstellen schon existieren (Upsert), trotzdem frisch laden
-        await refreshUser(newUser.name);
+        await refreshUser(newUser.username);
         return true;
       }
 
@@ -66,8 +67,72 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginWithNpub = async (npub) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      localStorage.setItem('satoshi_last_npub', npub);
+      const { data: existingUser } = await getPlayerByNpub(npub);
+      if (existingUser) {
+        saveUser(existingUser);
+        await refreshUser(existingUser.username);
+        return { ok: true, needsSetup: false };
+      }
+
+      setPendingNpub(npub);
+      localStorage.setItem('satoshi_pending_npub', npub);
+      return { ok: true, needsSetup: true };
+    } catch (err) {
+      console.error('Nostr Login Fehler:', err);
+      setError(err.message || 'Nostr Login fehlgeschlagen');
+      return { ok: false, needsSetup: false };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeNpubSignup = async (username) => {
+    if (!pendingNpub) return false;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data: newUser, error: createError } = await createPlayerWithNpub(username, pendingNpub);
+
+      if (createError) {
+        if (createError.code === '23505') {
+          throw new Error('Name vergeben');
+        }
+        throw new Error('Fehler beim Erstellen: ' + createError.message);
+      }
+
+      if (newUser) {
+        saveUser(newUser);
+        setPendingNpub(null);
+        localStorage.removeItem('satoshi_pending_npub');
+        await refreshUser(newUser.username);
+        return true;
+      }
+      throw new Error('Konnte Nutzer nicht erstellen.');
+    } catch (err) {
+      console.error('Nostr Signup Fehler:', err);
+      setError(err.message || 'Nostr Signup fehlgeschlagen');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelNpubSignup = () => {
+    setPendingNpub(null);
+    localStorage.removeItem('satoshi_pending_npub');
+  };
+
   const logout = () => {
     setUser(null);
+    setPendingNpub(null);
+    localStorage.removeItem('satoshi_pending_npub');
     localStorage.removeItem('satoshi_user');
   };
 
@@ -80,7 +145,7 @@ export const AuthProvider = ({ children }) => {
   // Lädt die aktuellen Daten (Avatar, etc.) aus der DB und aktualisiert den State
   // Akzeptiert optional einen username-Parameter, damit wir nach Login direkt updaten können
   const refreshUser = async (usernameParam) => {
-    const usernameToFetch = usernameParam || user?.name;
+    const usernameToFetch = usernameParam || user?.username || user?.name;
     if (!usernameToFetch) return; 
 
     try {
@@ -110,6 +175,10 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider value={{ 
         user, 
         login, 
+      loginWithNpub,
+      completeNpubSignup,
+      cancelNpubSignup,
+      pendingNpub,
         logout, 
         loading, 
         error,

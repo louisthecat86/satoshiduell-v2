@@ -8,40 +8,58 @@ import { playSound, TickSound } from '../utils/sound';
 const GameView = ({ gameData, onGameEnd }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const userName = user?.username || user?.name || '';
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [score, setScore] = useState(0);
   
-  // Timer State
-  const [startTime] = useState(Date.now());
-  const [elapsed, setElapsed] = useState(0);
+  // Timer State (countdown)
+  const [timeLeft, setTimeLeft] = useState(15);
+  const [totalTimeUsed, setTotalTimeUsed] = useState(0);
+  const totalTimeUsedRef = useRef(0);
   const timerRef = useRef(null);
 
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [alreadyPlayed, setAlreadyPlayed] = useState(false);
 
   // --- TÜRSTEHER: Habe ich schon gespielt? ---
   useEffect(() => {
-    const isCreator = user.name === gameData.creator;
+    if (gameData.mode === 'arena') {
+      const scores = gameData.participant_scores || {};
+      const myScoreInDB = scores[userName?.toLowerCase()] ?? scores[userName];
+      if (myScoreInDB !== null && myScoreInDB !== undefined) {
+        setAlreadyPlayed(true);
+        onGameEnd({ score: myScoreInDB, totalTime: 0 });
+      }
+      return;
+    }
+
+    const isCreator = userName === gameData.creator;
     const myScoreInDB = isCreator ? gameData.creator_score : gameData.challenger_score;
 
     if (myScoreInDB !== null && myScoreInDB !== undefined) {
-      // Wenn schon gespielt, sofort raus hier
+      setAlreadyPlayed(true);
       onGameEnd({ score: myScoreInDB, totalTime: 0 }); 
     }
   }, []);
 
-  // --- TIMER LOGIK ---
+  // --- TIMER LOGIK (COUNTDOWN) ---
   useEffect(() => {
-    // Aktualisiert die Anzeige alle 100ms
     timerRef.current = setInterval(() => {
-      if (!hasSubmitted) {
-        setElapsed(Date.now() - startTime);
+      if (!hasSubmitted && selectedAnswer === null) {
+        setTimeLeft(prev => {
+          const next = Math.max(0, prev - 0.1);
+          if (next <= 0) {
+            handleAnswerClick(-1, true);
+          }
+          return next;
+        });
       }
     }, 100);
 
     return () => clearInterval(timerRef.current);
-  }, [startTime, hasSubmitted]);
+  }, [hasSubmitted, selectedAnswer, currentQuestionIndex]);
 
   // --- SOUND: Tick Sound Management ---
   const tickRef = useRef(null);
@@ -55,12 +73,18 @@ const GameView = ({ gameData, onGameEnd }) => {
   const question = gameData.questions[currentQuestionIndex];
   const totalQuestions = gameData.questions.length;
 
-  const handleAnswerClick = (index) => {
+  useEffect(() => {
+    setTimeLeft(15);
+  }, [currentQuestionIndex]);
+
+  const handleAnswerClick = (index, isTimeout = false) => {
     if (selectedAnswer !== null || hasSubmitted) return; 
 
     const muted = localStorage.getItem('satoshi_sound') === 'false';
-    // Click sound
-    playSound('click', muted);
+    if (!isTimeout) {
+      // Click sound
+      playSound('click', muted);
+    }
 
     setSelectedAnswer(index);
 
@@ -73,6 +97,15 @@ const GameView = ({ gameData, onGameEnd }) => {
       // Play wrong sound
       playSound('wrong', muted);
     }
+
+    // Accumulate time used for this question (15s - timeLeft)
+    const used = Math.min(15, Math.max(0, 15 - timeLeft));
+    const usedMs = used * 1000;
+    setTotalTimeUsed(prev => {
+      const next = prev + usedMs;
+      totalTimeUsedRef.current = next;
+      return next;
+    });
 
     // Stop tick on answer
     tickRef.current && tickRef.current.stop();
@@ -96,20 +129,24 @@ const GameView = ({ gameData, onGameEnd }) => {
     setHasSubmitted(true);
     clearInterval(timerRef.current);
     
-    const endTime = Date.now();
-    const totalTime = endTime - startTime;
-    
-    onGameEnd({ score: finalScore, totalTime });
+    onGameEnd({ score: finalScore, totalTime: totalTimeUsedRef.current });
   };
 
   // Anti-Cheat Blank Screen
-  const isCreator = user.name === gameData.creator;
-  if ((isCreator ? gameData.creator_score : gameData.challenger_score) !== null) {
-      return <div className="h-screen bg-black" />;
-  }
+    if (alreadyPlayed) {
+      return (
+        <Background>
+          <div className="flex flex-col items-center justify-center h-full text-center p-6">
+            <div className="text-neutral-400 text-sm font-bold uppercase tracking-widest">
+              Ergebnis wird geladen...
+            </div>
+          </div>
+        </Background>
+      );
+    }
 
-  // Formatierung der Zeit (z.B. 12.5 s)
-  const formattedTime = (elapsed / 1000).toFixed(1);
+  // Formatierung der Zeit (Countdown)
+  const formattedTime = timeLeft.toFixed(1);
 
   // Start/stop tick when question becomes active
   useEffect(() => {
@@ -141,11 +178,19 @@ const GameView = ({ gameData, onGameEnd }) => {
           </div>
           
           {/* DER VISUELLE TIMER */}
-          <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-xl border border-white/10 shadow-lg">
-            <Timer className={`w-5 h-5 ${parseFloat(formattedTime) > 10 ? 'text-red-500 animate-pulse' : 'text-orange-500'}`} />
-            <span className="text-xl font-bold text-white font-mono min-w-[60px] text-right">
-              {formattedTime} <span className="text-sm text-neutral-500">s</span>
-            </span>
+          <div className="flex flex-col gap-2 min-w-[160px]">
+            <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-xl border border-white/10 shadow-lg">
+              <Timer className={`w-5 h-5 ${parseFloat(formattedTime) < 5 ? 'text-red-500 animate-pulse' : 'text-orange-500'}`} />
+              <span className="text-xl font-bold text-white font-mono min-w-[60px] text-right">
+                {formattedTime} <span className="text-sm text-neutral-500">s</span>
+              </span>
+            </div>
+            <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden border border-white/10">
+              <div
+                className={`h-full transition-[width] duration-100 ${parseFloat(formattedTime) < 5 ? 'bg-red-500' : 'bg-orange-500'}`}
+                style={{ width: `${Math.max(0, (timeLeft / 15) * 100)}%` }}
+              />
+            </div>
           </div>
         </div>
 
@@ -172,6 +217,7 @@ const GameView = ({ gameData, onGameEnd }) => {
                    disabled={selectedAnswer !== null}
                    className={`p-4 rounded-xl border text-left font-bold transition-all duration-200 ${btnClass} ${selectedAnswer === null ? 'active:scale-95' : ''}`}
                  >
+                   <span className="mr-2 text-neutral-400 font-black">{String.fromCharCode(65 + index)}.</span>
                    {answer}
                  </button>
                );

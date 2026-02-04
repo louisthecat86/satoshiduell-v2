@@ -4,13 +4,14 @@ import Button from '../components/ui/Button';
 import { ArrowLeft, History, Trophy, Frown, MinusCircle, RefreshCcw, Calendar, Zap } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 // WICHTIG: Profil laden für die Stats oben
-import { fetchUserHistory, fetchUserProfile, fetchProfiles } from '../services/supabase'; 
+import { fetchUserHistory, fetchUserProfile, fetchProfiles, recalculateUserStats } from '../services/supabase'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { playSound } from '../utils/sound';
 
 const HistoryView = ({ onBack, onSelectGame }) => {
   const { user } = useAuth();
   const { t } = useTranslation();
+    const userName = user?.username || user?.name || '';
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); 
@@ -20,13 +21,14 @@ const HistoryView = ({ onBack, onSelectGame }) => {
 
   useEffect(() => {
     const loadData = async () => {
-      if (user?.name) {
+            if (userName) {
+                await recalculateUserStats(userName);
         // 1. Profil Stats laden (für die Kacheln)
-        const { data: profile } = await fetchUserProfile(user.name);
+                const { data: profile } = await fetchUserProfile(userName);
         if (profile) setStats(profile);
 
         // 2. Historie laden (für die Liste)
-        const { data: history } = await fetchUserHistory(user.name);
+                const { data: history } = await fetchUserHistory(userName);
         if (history) {
             const sorted = history.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
@@ -48,14 +50,22 @@ const HistoryView = ({ onBack, onSelectGame }) => {
       setLoading(false);
     };
     loadData();
-  }, [user]);
+    }, [userName]);
 
   // --- FILTER LOGIK ---
   const filteredGames = games.filter(g => {
       if (g.status !== 'finished' && g.status !== 'refunded') return false;
       if (filter === 'all') return true;
       
-      const isCreator = g.creator === user.name;
+            if (g.mode === 'arena') {
+                if (g.status === 'refunded') return filter === 'refund';
+                const winner = g.winner;
+                if (filter === 'win') return winner && winner === userName;
+                if (filter === 'lose') return winner && winner !== userName;
+                return false;
+            }
+
+    const isCreator = g.creator === userName;
       const myScore = isCreator ? g.creator_score : g.challenger_score;
       const opScore = isCreator ? g.challenger_score : g.creator_score;
       
@@ -71,12 +81,30 @@ const HistoryView = ({ onBack, onSelectGame }) => {
   });
 
   const getGameDetails = (game) => {
-      const isCreator = game.creator === user.name;
+    const isCreator = game.creator === userName;
       const opponentName = isCreator ? (game.challenger || "Unbekannt") : game.creator;
       const myScore = isCreator ? game.creator_score : game.challenger_score;
       const opScore = isCreator ? game.challenger_score : game.creator_score;
       const myTime = isCreator ? game.creator_time : game.challenger_time;
       const opTime = isCreator ? game.challenger_time : game.creator_time;
+
+            if (game.mode === 'arena') {
+                    if (game.status === 'refunded') {
+                            return {
+                                    status: 'refund',
+                                    icon: <RefreshCcw size={20} className="text-red-400"/>,
+                                    title: 'ARENA STORNO',
+                                    colorClass: 'bg-red-900/10 border-red-500/30',
+                                    textClass: 'text-red-400',
+                                    scoreText: `${game.amount} Sats zurück`
+                            };
+                    }
+                    const winner = game.winner;
+                    const iWon = winner && winner === userName;
+                    return iWon
+                        ? { status: 'win', icon: <Trophy size={20} className="text-yellow-400"/>, title: 'ARENA GEWONNEN', colorClass: 'bg-yellow-900/10 border-yellow-500/30', textClass: 'text-yellow-400', scoreText: t('arena_history_win') }
+                        : { status: 'lose', icon: <Frown size={20} className="text-neutral-600"/>, title: 'ARENA VERLOREN', colorClass: 'bg-neutral-900/50 border-neutral-800', textClass: 'text-neutral-600', scoreText: t('arena_history_lose') };
+            }
 
       if (game.status === 'refunded') {
           return {
@@ -159,8 +187,8 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                filteredGames.map(game => {
                    const details = getGameDetails(game);
                    const date = new Date(game.created_at).toLocaleDateString();
-                   const isCreator = game.creator === user.name;
-                   const opponent = isCreator ? (game.challenger || "Niemand") : game.creator;
+                   const isCreator = game.creator === userName;
+                   const opponent = game.mode === 'arena' ? t('arena_history_opponent') : (isCreator ? (game.challenger || "Niemand") : game.creator);
                    // Avatar des Gegners (falls vorhanden)
                    const opponentAvatar = isCreator ? (game.challengerAvatar || null) : (game.creatorAvatar || null);
 

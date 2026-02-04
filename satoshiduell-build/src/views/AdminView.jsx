@@ -1,973 +1,689 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
-import { ArrowLeft, Inbox, List, BarChart3, CheckCircle2, XCircle, Download, Upload, Trash2, Loader2 } from 'lucide-react';
-import { fetchSubmissions, updateSubmissionStatus, createQuestion, fetchQuestions, fetchAllDuels, deleteAllQuestions } from '../services/supabase';
-import QuestionEditor from '../components/admin/QuestionEditor';
+import { 
+  ArrowLeft, Upload, Download, Trash2, Loader2, RefreshCw, 
+  Search, FileUp, Globe, X, Save, Check, LayoutDashboard, 
+  Gamepad2, ListChecks, Coins, Trophy, Clock
+} from 'lucide-react';
+import { 
+  fetchQuestions, upsertQuestions, deleteQuestion, deleteAllQuestions,
+  fetchAllDuels, fetchSubmissions, updateSubmissionStatus, deleteSubmission, supabase 
+} from '../services/supabase';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
 
-const AdminView = ({ onBack }) => {
-  const { t } = useTranslation();
-  const { user } = useAuth();
-  const [tab, setTab] = useState('submissions');
-
-  // Submissions
-  const [submissions, setSubmissions] = useState([]);
-  const [loadingSub, setLoadingSub] = useState(true);
-  const [submissionFilter, setSubmissionFilter] = useState('pending');
-
-  // Questions
-  const [questions, setQuestions] = useState([]);
-  const [questionGroups, setQuestionGroups] = useState([]);
-  const [loadingQ, setLoadingQ] = useState(true);
-  const [importReplace, setImportReplace] = useState(false);
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editorQuestion, setEditorQuestion] = useState(null);
-  const [showImportUrl, setShowImportUrl] = useState(false);
-  const [importUrl, setImportUrl] = useState('');
-
-  // Games
-  const [games, setGames] = useState([]);
-  const [loadingG, setLoadingG] = useState(true);
-
-  // UI States
-  const [actionInProgress, setActionInProgress] = useState(null);
-
-  const loadSubmissions = async () => {
-    setLoadingSub(true);
-    const { data } = await fetchSubmissions(submissionFilter === 'all' ? null : submissionFilter);
-    setSubmissions(data || []);
-    setLoadingSub(false);
-  };
-
-  const loadQuestions = async (highlightId = null) => {
-    setLoadingQ(true);
-    const { data, error } = await fetchQuestions();
-    if (error) console.error('loadQuestions error:', error);
-    const rows = data || [];
-    setQuestions(rows);
-
-    // Group rows by created_at (one question per language -> group into multi-lang entries)
-    const groupsMap = {};
-    rows.forEach(r => {
-      const key = r.created_at || r.id;
-      if (!groupsMap[key]) groupsMap[key] = { key, created_at: r.created_at, rows: [] };
-      groupsMap[key].rows.push(r);
-    });
-    const groups = Object.values(groupsMap).map(g => {
-      // pick German as representative if exists, otherwise first
-      const rep = g.rows.find(x => x.language === 'de') || g.rows[0];
-      return { ...g, representative: rep };
-    });
-    setQuestionGroups(groups);
-    if (highlightId && Array.isArray(data)) {
-      const found = data.find(d => d.id === highlightId);
-      console.log('Loaded question after refresh (highlight):', highlightId, found || 'NOT FOUND');
-      // Also fetch the single row directly to detect caching / CDN staleness
-      try {
-        const { data: single, error: singleErr } = await (await import('../services/supabase')).fetchQuestionById(highlightId);
-        if (singleErr) console.warn('fetchQuestionById error:', singleErr);
-        console.log('Direct fetch by id result:', single || null);
-      } catch (e) {
-        console.warn('Direct fetch by id failed', e);
-      }
-    }
-    console.log('Loaded questions count:', Array.isArray(data) ? data.length : 0);
-    setLoadingQ(false);
-  };
-
-  const openEditor = (q) => {
-    setEditorQuestion(q);
-    setEditorOpen(true);
-  };
-
-  const loadGames = async () => {
-    setLoadingG(true);
-    const { data } = await fetchAllDuels(200);
-    setGames(data || []);
-    setLoadingG(false);
-  };
-
-  useEffect(() => {
-    if (!user?.is_admin) return;
-    loadSubmissions();
-    loadQuestions();
-    loadGames();
-  }, [user]);
-
-  useEffect(() => {
-    if (tab === 'submissions') loadSubmissions();
-  }, [submissionFilter]);
-
-  if (!user?.is_admin) {
-    return (
-      <Background>
-        <div className="flex flex-col h-full w-full max-w-md mx-auto items-center justify-center p-6">
-          <div className="text-center">
-            <h3 className="text-white font-black text-lg mb-2">🔒 {t('admin_access_denied')}</h3>
-            <p className="text-neutral-500 text-sm mb-6">{t('admin_requires_permission')}</p>
-            <button onClick={onBack} className="px-4 py-2 bg-orange-500 text-black rounded-xl font-bold hover:bg-orange-600 transition-colors">{t('btn_back_menu')}</button>
-          </div>
-        </div>
-      </Background>
-    );
-  }
-
-  const acceptSubmission = async (s) => {
-    setActionInProgress(s.id);
-    try {
-      const { data: q, error: qErr } = await createQuestion({ 
-        language: s.language, 
-        question: s.question, 
-        options: s.options, 
-        correct: s.correct 
-      });
-      if (qErr) throw new Error(t('admin_error'));
-      await updateSubmissionStatus(s.id, 'accepted');
-      alert(t('admin_question_approved'));
-      loadSubmissions();
-      loadQuestions();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setActionInProgress(null);
-    }
-  };
-
-  const rejectSubmission = async (s) => {
-    setActionInProgress(s.id);
-    try {
-      await updateSubmissionStatus(s.id, 'rejected');
-      alert(t('admin_question_rejected'));
-      loadSubmissions();
-    } catch (err) {
-      alert(t('admin_error'));
-    } finally {
-      setActionInProgress(null);
-    }
-  };
-
-  const exportQuestionsCSV = () => {
-    if (!questions || questions.length === 0) return alert(t('admin_no_data'));
-
-    // Format für Export: Eine Zeile pro Sprache pro Frage
-    // Damit kann man leicht neue Fragen in allen 3 Sprachen hinzufügen
-    const rows = questions.map(q => ({
-      id: q.id,
-      language: q.language,
-      question: q.question,
-      option1: q.options?.[0] || '',
-      option2: q.options?.[1] || '',
-      option3: q.options?.[2] || '',
-      option4: q.options?.[3] || '',
-      correct_answer: (q.correct || 0) + 1 // 1, 2, 3, oder 4 statt 0, 1, 2, 3
-    }));
-
-    const headers = ['id', 'language', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_answer'];
-    const csv = [
-      headers.join(','),
-      ...rows.map(r => headers.map(h => {
-        const val = r[h];
-        return '"' + String(val).replace(/"/g, '""') + '"';
-      }).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `questions_export_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importQuestionsCSV = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-          try {
-            if (importReplace) {
-              const ok = confirm('Replace mode: This will DELETE all existing questions. Continue?');
-              if (!ok) {
-                event.target.value = '';
-                return;
-              }
-              setActionInProgress('importing');
-              const { error: delErr } = await deleteAllQuestions();
-              if (delErr) {
-                alert('Fehler beim Löschen vorhandener Fragen: ' + (delErr.message || JSON.stringify(delErr)));
-                setActionInProgress(null);
-                return;
-              }
-            }
-        const csv = e.target?.result;
-        if (!csv) return alert(t('admin_error'));
-
-        const lines = csv.split('\n').filter(line => line.trim());
-        if (lines.length < 2) return alert('CSV muss Header und mindestens 1 Zeile haben');
-
-        const rawHeaders = lines[0].split(',').map(h => h.trim());
-        const headers = rawHeaders.map(h => h.toLowerCase());
-        
-        console.log('📋 Erkannte Header:', rawHeaders);
-
-        // Erkenne welches Format verwendet wird
-        const useNewFormat = headers.includes('option1') && headers.includes('option2');
-        const useOldFormat = headers.includes('options') && headers.includes('correct');
-
-        // SPEZIAL: Erkenne language-specific Spalten (question_de, option_de_1 ...)
-        const langs = ['de', 'en', 'es'];
-        const langColumnGroups = {}; // { de: { question: idx, options: [idx..], activeIdx, verifiedIdx } }
-        langs.forEach(lang => {
-          const qKey = rawHeaders.findIndex(h => h.toLowerCase() === `question_${lang}` || h.toLowerCase().startsWith(`question_${lang}`));
-          const optKeys = [];
-          for (let k = 1; k <= 4; k++) {
-            const name1 = `option_${lang}_${k}`;
-            const name2 = `option_${lang}_${k}`;
-            const idx = rawHeaders.findIndex(h => h.toLowerCase() === name1 || h.toLowerCase() === name2 || h.toLowerCase().includes(`option-${lang}-${k}`));
-            if (idx >= 0) optKeys.push(idx);
-          }
-          if (qKey >= 0 && optKeys.length === 4) {
-            langColumnGroups[lang] = { question: qKey, options: optKeys };
-          }
-        });
-
-        // Versuche automatisch Spalten zu mappen wenn weder neues noch altes Format passt
-        let columnMap = null;
-        if (!useNewFormat && !useOldFormat && Object.keys(langColumnGroups).length === 0) {
-          // Auto-Detect: Suche nach Spalten mit gemeinsamen Mustern
-          const langCol = headers.findIndex(h => h.includes('language') || h.includes('sprache') || h.includes('lang'));
-          const qCol = headers.findIndex(h => h.includes('question') || h.includes('frage') || h.includes('question_text'));
-
-          // Suche nach Optionen - können unterschiedlich benannt sein
-          const optionCols = [];
-          headers.forEach((h, idx) => {
-            if (h.includes('option') || h.includes('answer') || h.includes('antwort') || h.includes('a.') || h.includes('a )')) {
-              optionCols.push(idx);
-            }
-          });
-
-          const correctCol = headers.findIndex(h => h.includes('correct') || h.includes('richtig') || h.includes('answer') || h.includes('correct_answer') || h.includes('correct_index'));
-
-          if (qCol >= 0 && optionCols.length >= 4) {
-            columnMap = {
-              language: langCol >= 0 ? langCol : null,
-              question: qCol,
-              options: optionCols.slice(0, 4),
-              correct: correctCol >= 0 ? correctCol : null
-            };
-            console.log('🔍 Auto-Mapping gefunden:', columnMap);
-          }
-        }
-
-        // Wenn neues Format verwendet wird: prüfen, ob die CSV in 3-Zeilen-Blöcken (de,en,es) vorliegt
-        if (useNewFormat) {
-          const parseLine = (line) => {
-            const values = [];
-            let current = '';
-            let inQuotes = false;
-            for (let j = 0; j < line.length; j++) {
-              const char = line[j];
-              if (char === '"') {
-                inQuotes = !inQuotes;
-              } else if ((char === ',' || char === '\t') && !inQuotes) {
-                values.push(current.trim().replace(/^"|"$/g, ''));
-                current = '';
-              } else {
-                current += char;
-              }
-            }
-            values.push(current.trim().replace(/^"|"$/g, ''));
-            return values;
-          };
-
-          const parsedRows = lines.slice(1).map(l => {
-            const vals = parseLine(l);
-            const row = {};
-            rawHeaders.forEach((h, idx) => { row[h.toLowerCase()] = vals[idx]; });
-            return row;
-          });
-
-          let blockMode = true;
-          if (parsedRows.length % 3 !== 0) blockMode = false;
-          for (let i = 0; blockMode && i + 2 < parsedRows.length; i += 3) {
-            const a = (parsedRows[i].language || '').toLowerCase().startsWith('de');
-            const b = (parsedRows[i+1].language || '').toLowerCase().startsWith('en');
-            const c = (parsedRows[i+2].language || '').toLowerCase().startsWith('es');
-            if (!(a && b && c)) blockMode = false;
-          }
-
-          if (blockMode) {
-            let imported = 0;
-            let failed = 0;
-            for (let i = 0; i < parsedRows.length; i += 3) {
-              try {
-                // Representative (DE) row used to find existing group
-                const rep = parsedRows[i];
-                const repQuestion = rep.question;
-                const found = await (await import('../services/supabase')).findQuestionByLanguageAndQuestion('de', repQuestion);
-
-                // If group exists, delete its rows (by created_at) before inserting new ones
-                let useCreatedAt = new Date().toISOString();
-                if (found?.data && found.data.created_at) {
-                  useCreatedAt = found.data.created_at;
-                  const { error: delErr } = await (await import('../services/supabase')).deleteQuestionsByCreatedAt(useCreatedAt);
-                  if (delErr) {
-                    console.warn('Failed to delete existing group by created_at', delErr);
-                  }
-                }
-
-                // Insert the 3 language rows reusing the group's created_at when replacing
-                for (let j = 0; j < 3; j++) {
-                  try {
-                    const r = parsedRows[i + j];
-                    const language = (r.language || 'de').substring(0,2).toLowerCase();
-                    const question = r.question;
-                    const options = [r.option1, r.option2, r.option3, r.option4].map(x => x || '');
-                    const correct = (parseInt(r.correct_answer) || 1) - 1;
-                    if (!question || options.some(o => !o)) { failed++; continue; }
-                    await createQuestion({ language, question, options: options.slice(0,4), correct, created_at: useCreatedAt });
-                    imported++;
-                  } catch (err) {
-                    console.error('Import sub-row error', err);
-                    failed++;
-                  }
-                }
-              } catch (err) {
-                console.error('Import block error', err);
-                failed += 3;
-              }
-            }
-            alert(`✅ ${imported} Fragen importiert (Blockmodus), ${failed} übersprungen`);
-            loadQuestions();
-            event.target.value = '';
-            return;
-          }
-        }
-
-        if (!useNewFormat && !useOldFormat && Object.keys(langColumnGroups).length === 0 && !columnMap) {
-          return alert(`⚠️ Spalten nicht erkannt!\n\nErkannte: ${rawHeaders.join(', ')}\n\nErwartet: language, question, option1, option2, option3, option4, correct_answer\nOder language-specific Spalten wie question_de, option_de_1`);
-        }
-
-        setActionInProgress('importing');
-        let imported = 0;
-        let failed = 0;
-
-        // Detect some optional control columns
-        const correctIndexCol = rawHeaders.findIndex(h => h.toLowerCase().includes('correct_index') || h.toLowerCase().includes('correct_answer') || h.toLowerCase().includes('correct'));
-        const isActiveCol = rawHeaders.findIndex(h => h.toLowerCase().includes('is_active'));
-        const isVerifiedCol = rawHeaders.findIndex(h => h.toLowerCase().includes('is_verified'));
-
-        for (let i = 1; i < lines.length; i++) {
-          // CSV Parser: Respektiere Anführungszeichen und Tabs
-          const values = [];
-          let current = '';
-          let inQuotes = false;
-          for (let j = 0; j < lines[i].length; j++) {
-            const char = lines[i][j];
-            if (char === '"') {
-              inQuotes = !inQuotes;
-            } else if ((char === ',' || char === '\t') && !inQuotes) {
-              values.push(current.trim().replace(/^"|"$/g, ''));
-              current = '';
-            } else {
-              current += char;
-            }
-          }
-          values.push(current.trim().replace(/^"|"$/g, ''));
-
-          try {
-            // Skip empty rows
-            if (values.every(v => !v)) continue;
-
-            // If is_verified present and set to 0/false, skip this row
-            if (isVerifiedCol >= 0) {
-              const v = (values[isVerifiedCol] || '').toLowerCase();
-              if (v === '0' || v === 'false' || v === 'no') {
-                failed++;
-                continue;
-              }
-            }
-
-            // If language-specific groups detected, create one question per language present
-            if (Object.keys(langColumnGroups).length > 0) {
-              for (const lang of Object.keys(langColumnGroups)) {
-                const group = langColumnGroups[lang];
-                const question = values[group.question];
-                const options = group.options.map(idx => values[idx]);
-
-                if (!question || options.some(o => !o)) {
-                  // Skip this language entry if incomplete
-                  continue;
-                }
-
-                // Determine correct index (global or per-row)
-                let correct = 0;
-                if (correctIndexCol >= 0) {
-                  const cv = parseInt(values[correctIndexCol]);
-                  if (isNaN(cv)) { failed++; continue; }
-                  correct = cv > 1 ? cv - 1 : cv;
-                } else {
-                  // fallback: assume first option is correct if not provided
-                  correct = 0;
-                }
-
-                await createQuestion({
-                  language: lang,
-                  question,
-                  options: options.slice(0,4),
-                  correct
-                });
-                imported++;
-              }
-            } else {
-              // legacy / new / auto-mapped handling
-              let language = 'de';
-              let question = '';
-              let options = [];
-              let correct = 0;
-
-              if (useNewFormat) {
-                const row = {};
-                headers.forEach((h, idx) => { row[h] = values[idx]; });
-                language = row.language || 'de';
-                question = row.question;
-                options = [row.option1, row.option2, row.option3, row.option4];
-                correct = (parseInt(row.correct_answer) || 1) - 1;
-              } else if (useOldFormat) {
-                const row = {};
-                headers.forEach((h, idx) => { row[h] = values[idx]; });
-                language = row.language || 'de';
-                question = row.question;
-                options = JSON.parse(row.options);
-                correct = parseInt(row.correct);
-              } else if (columnMap) {
-                // Auto-mapped format
-                language = columnMap.language !== null ? values[columnMap.language] || 'de' : 'de';
-                question = values[columnMap.question];
-                options = columnMap.options.map(idx => values[idx]);
-
-                // Parse correct answer - könnte 1-4 oder 0-3 sein
-                const correctVal = parseInt(values[columnMap.correct]);
-                correct = correctVal > 1 ? correctVal - 1 : correctVal;
-              }
-
-              if (!question || !options.length || options.some(o => !o)) {
-                failed++;
-                continue;
-              }
-
-              // Ensure 4 options
-              while (options.length < 4) options.push('');
-              options = options.slice(0, 4);
-
-              if (isNaN(correct) || correct < 0 || correct > 3) {
-                failed++;
-                continue;
-              }
-
-              await createQuestion({
-                language: language.substring(0, 2).toLowerCase(),
-                question,
-                options,
-                correct
-              });
-              imported++;
-            }
-          } catch (err) {
-            console.error('Import-Fehler in Reihe', i, ':', err);
-            failed++;
-          }
-        }
-
-        alert(`✅ ${imported} Fragen importiert, ${failed} übersprungen`);
-        loadQuestions();
-        event.target.value = '';
-      } catch (err) {
-        alert(`Fehler beim Importieren: ${err.message}`);
-      } finally {
-        setActionInProgress(null);
-      }
+// ==========================================
+// 1. HELPER: STATUS BADGES & FORMATTING
+// ==========================================
+const StatusBadge = ({ status }) => {
+    const styles = {
+        'open': 'bg-green-500/20 text-green-400 border-green-500/30',
+        'active': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+        'finished': 'bg-neutral-700 text-neutral-300 border-neutral-600',
+        'pending_payment': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+        'cancelled': 'bg-red-500/20 text-red-400 border-red-500/30'
     };
-    reader.readAsText(file, 'UTF-8');
+    const labels = {
+        'open': 'Wartet',
+        'active': 'Läuft',
+        'finished': 'Beendet',
+        'pending_payment': 'Zahlung',
+        'cancelled': 'Abbruch'
+    };
+    return (
+        <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${styles[status] || styles['finished']}`}>
+            {labels[status] || status}
+        </span>
+    );
+};
+
+const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleDateString('de-DE', { 
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+    });
+};
+
+// ==========================================
+// 2. EDITOR (INTERN) - Fragen bearbeiten
+// ==========================================
+const QuestionEditorInternal = ({ open, onClose, question, onSaved }) => {
+  if (!open) return null;
+  const [activeLang, setActiveLang] = useState('de');
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({});
+
+  const findValue = (obj, searchKey) => {
+    if (!obj) return '';
+    const searchLower = searchKey.toLowerCase().trim();
+    const foundKey = Object.keys(obj).find(k => k.toLowerCase().trim() === searchLower);
+    return foundKey ? obj[foundKey] : '';
   };
 
-  const handleImportClick = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv';
-    input.onchange = importQuestionsCSV;
-    input.click();
-  };
-
-  const handleExport = () => {
-    exportQuestionsCSV();
-  };
-
-  const importFromUrl = async () => {
-    if (!importUrl.trim()) return alert('Bitte URL eingeben');
-    
-    setActionInProgress('importing');
-    try {
-      const response = await fetch(importUrl);
-      if (!response.ok) throw new Error('URL nicht erreichbar');
-      
-      const csv = await response.text();
-      const lines = csv.split('\n').filter(line => line.trim());
-      if (lines.length < 2) return alert('CSV muss Header und mindestens 1 Zeile haben');
-
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-      
-      // Unterstütze beide Formate
-      const useNewFormat = headers.includes('option1') && headers.includes('option2');
-      const requiredHeaders = useNewFormat 
-        ? ['language', 'question', 'option1', 'option2', 'option3', 'option4', 'correct_answer']
-        : ['language', 'question', 'options', 'correct'];
-      
-      const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
-      
-      if (missingHeaders.length > 0) {
-        return alert(`Fehlende Spalten: ${missingHeaders.join(', ')}`);
-      }
-
-      let imported = 0;
-      let failed = 0;
-
-      for (let i = 1; i < lines.length; i++) {
-        // CSV Parser: Respektiere Anführungszeichen
-        const values = [];
-        let current = '';
-        let inQuotes = false;
-        for (let j = 0; j < lines[i].length; j++) {
-          const char = lines[i][j];
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            values.push(current.trim().replace(/^"|"$/g, ''));
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        values.push(current.trim().replace(/^"|"$/g, ''));
-
-        const row = {};
-        headers.forEach((h, idx) => {
-          row[h] = values[idx];
-        });
-
-        try {
-          const language = row.language || 'de';
-          const question = row.question;
-          let options, correct;
-
-          if (useNewFormat) {
-            options = [row.option1, row.option2, row.option3, row.option4];
-            correct = (parseInt(row.correct_answer) || 1) - 1;
-          } else {
-            options = JSON.parse(row.options);
-            correct = parseInt(row.correct);
-          }
-
-          if (!question || !Array.isArray(options) || options.length !== 4 || isNaN(correct) || correct < 0 || correct > 3) {
-            failed++;
-            continue;
-          }
-
-          await createQuestion({
-            language,
-            question,
-            options,
-            correct
-          });
-          imported++;
-        } catch (err) {
-          failed++;
-        }
-      }
-
-      alert(`✓ ${imported} Fragen importiert, ${failed} fehlgeschlagen`);
-      setImportUrl('');
-      setShowImportUrl(false);
-      loadQuestions();
-    } catch (err) {
-      alert(`Fehler beim URL-Import: ${err.message}`);
-    } finally {
-      setActionInProgress(null);
+  useEffect(() => {
+    if (question) {
+      setFormData({
+        id: question.id,
+        question_de: findValue(question, 'question_de'), option_de_1: findValue(question, 'option_de_1'), option_de_2: findValue(question, 'option_de_2'), option_de_3: findValue(question, 'option_de_3'), option_de_4: findValue(question, 'option_de_4'),
+        question_en: findValue(question, 'question_en'), option_en_1: findValue(question, 'option_en_1'), option_en_2: findValue(question, 'option_en_2'), option_en_3: findValue(question, 'option_en_3'), option_en_4: findValue(question, 'option_en_4'),
+        question_es: findValue(question, 'question_es'), option_es_1: findValue(question, 'option_es_1'), option_es_2: findValue(question, 'option_es_2'), option_es_3: findValue(question, 'option_es_3'), option_es_4: findValue(question, 'option_es_4'),
+        correct_index: parseInt(findValue(question, 'correct_index') || 0),
+        difficulty: findValue(question, 'difficulty') || 'medium',
+        is_active: question.is_active ?? 1
+      });
+    } else {
+      setFormData({
+        id: null,
+        question_de: '', option_de_1: '', option_de_2: '', option_de_3: '', option_de_4: '',
+        question_en: '', option_en_1: '', option_en_2: '', option_en_3: '', option_en_4: '',
+        question_es: '', option_es_1: '', option_es_2: '', option_es_3: '', option_es_4: '',
+        correct_index: 0, difficulty: 'medium', is_active: 1
+      });
     }
+  }, [question]);
+
+  const handleChange = (field, value) => {
+    if (['difficulty', 'correct_index', 'is_active'].includes(field)) {
+       setFormData(prev => ({ ...prev, [field]: value }));
+       return;
+    }
+    const key = field.startsWith('option_') ? `option_${activeLang}_${field.split('_')[1]}` : `${field}_${activeLang}`;
+    setFormData(prev => ({ ...prev, [key]: value }));
   };
 
-  // Stats
-  const stats = {
-    totalQuestions: questionGroups.length,
-    totalSubmissions: submissions.length,
-    totalGames: games.length,
-    pendingSubmissions: submissions.filter(s => s.reviewed === false).length
+  const getVal = (base) => {
+      if (base.startsWith('option_')) return formData[`option_${activeLang}_${base.split('_')[1]}`] || '';
+      return formData[`${base}_${activeLang}`] || '';
+  };
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      const payload = { ...formData };
+      if (!payload.id) delete payload.id;
+      const { error } = await upsertQuestions([payload]);
+      if (error) throw error;
+      if (onSaved) onSaved();
+      onClose();
+    } catch (e) { alert("Fehler: " + e.message); } 
+    finally { setLoading(false); }
   };
 
   return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-[#111] border border-white/10 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="shrink-0 flex items-center justify-between p-4 border-b border-white/5 bg-[#161616]">
+          <h2 className="text-white font-black text-lg uppercase tracking-wider flex items-center gap-2">
+            <Globe size={18} className="text-orange-500"/> {question ? 'BEARBEITEN' : 'NEU'}
+          </h2>
+          <button onClick={onClose} className="text-neutral-500 hover:text-white transition-colors"><X size={24} /></button>
+        </div>
+        <div className="shrink-0 flex p-2 gap-2 bg-black/20 border-b border-white/5">
+          {['de', 'en', 'es'].map(lang => (
+            <button key={lang} onClick={() => setActiveLang(lang)} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${activeLang === lang ? 'bg-orange-500 text-black' : 'bg-white/5 text-neutral-400'}`}>
+              {lang.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-neutral-500 uppercase">Frage ({activeLang})</label>
+            <textarea value={getVal('question')} onChange={e => handleChange('question', e.target.value)} className="w-full bg-[#222] border border-white/10 rounded-xl p-3 text-white outline-none min-h-[80px]" />
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+             {[1, 2, 3, 4].map((num, idx) => (
+               <div key={num} className="flex items-start gap-2">
+                 <button onClick={() => setFormData(prev => ({ ...prev, correct_index: idx }))} className={`shrink-0 w-10 h-10 mt-1 rounded-lg flex items-center justify-center border transition-all ${formData.correct_index === idx ? 'bg-green-500 text-black' : 'bg-white/5 text-neutral-600 border-white/10'}`}>
+                   {formData.correct_index === idx ? <Check size={20} strokeWidth={4} /> : num}
+                 </button>
+                 <textarea value={getVal(`option_${num}`)} onChange={e => handleChange(`option_${num}`, e.target.value)} className="w-full bg-[#222] border border-white/10 rounded-xl p-3 text-sm text-white outline-none min-h-[60px]" placeholder={`Antwort ${num}`} />
+               </div>
+             ))}
+          </div>
+        </div>
+        <div className="shrink-0 p-4 border-t border-white/5 bg-[#161616] flex justify-end gap-3">
+          <button onClick={handleSave} className="px-6 py-2 rounded-xl bg-orange-500 text-black text-sm font-black hover:bg-orange-400">{loading ? "..." : "Speichern"}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 3. HAUPT VIEW: ADMIN DASHBOARD
+// ==========================================
+const AdminView = ({ onBack }) => {
+  const { user } = useAuth();
+  const { t } = useTranslation();
+  
+  // Tabs: 'dashboard' | 'questions' | 'games'
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [gamesFilter, setGamesFilter] = useState('all'); // 'all' | 'open'
+  
+  // Data States
+  const [stats, setStats] = useState({ users: 0, games: 0, pending: 0, questions: 0, inbox: 0 });
+  const [questions, setQuestions] = useState([]);
+  const [games, setGames] = useState([]);
+  const [players, setPlayers] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
+  
+  // UI States
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Editor / Import States
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorQuestion, setEditorQuestion] = useState(null);
+  const [importReplace, setImportReplace] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [submissionOpen, setSubmissionOpen] = useState(false);
+  const [activeSubmission, setActiveSubmission] = useState(null);
+  const [submissionForm, setSubmissionForm] = useState(null);
+  const [submissionError, setSubmissionError] = useState('');
+
+  // --- DATEN LADEN ---
+  const loadStats = async () => {
+     const { count: userCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+     const { count: gameCount } = await supabase.from('duels').select('*', { count: 'exact', head: true });
+    const { count: pendingCount } = await supabase.from('duels').select('*', { count: 'exact', head: true }).eq('status', 'open');
+      const { count: qCount } = await supabase.from('questions').select('*', { count: 'exact', head: true });
+      const { count: inboxCount } = await supabase.from('question_submissions').select('*', { count: 'exact', head: true });
+     
+      setStats({ users: userCount || 0, games: gameCount || 0, pending: pendingCount || 0, questions: qCount || 0, inbox: inboxCount || 0 });
+  };
+
+  const loadQuestions = async () => {
+    setLoading(true);
+    const { data } = await fetchQuestions();
+    if (data) setQuestions(data.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
+    setLoading(false);
+  };
+
+  const loadGames = async () => {
+    setLoading(true);
+    const { data } = await fetchAllDuels(200);
+    if (data) setGames(data);
+    setLoading(false);
+  };
+
+  const loadPlayers = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('total_sats_won', { ascending: false });
+    if (data) setPlayers(data);
+    setLoading(false);
+  };
+
+  const loadSubmissions = async () => {
+    setLoading(true);
+    const { data } = await fetchSubmissions();
+    if (data) setSubmissions(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+     loadStats();
+     if (activeTab === 'questions') loadQuestions();
+     if (activeTab === 'games') loadGames();
+      if (activeTab === 'players') loadPlayers();
+      if (activeTab === 'inbox') loadSubmissions();
+  }, [activeTab]);
+
+  const handleBack = () => {
+    if (activeTab !== 'dashboard') {
+      setActiveTab('dashboard');
+      return;
+    }
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    if (onBack) onBack();
+  };
+
+
+  // --- HANDLERS ---
+  const handleCSVImport = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (importReplace && !confirm("ACHTUNG: Alle Fragen löschen?")) return;
+      if (importReplace) await deleteAllQuestions();
+
+      setIsImporting(true);
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+          try {
+              const lines = ev.target.result.split('\n').filter(l => l.trim().length > 0);
+              const headers = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/^[\uFEFF\u200B]/, ''));
+              const parsedRows = [];
+              for (let i = 1; i < lines.length; i++) {
+                  const values = lines[i].split(';'); 
+                  if (values.length < 2) continue;
+                  const rowObj = {};
+                  headers.forEach((h, idx) => {
+                      let val = values[idx] ? values[idx].trim() : '';
+                      if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+                      rowObj[h] = val === '' ? null : val;
+                  });
+                  const newQ = { ...rowObj, is_active: 1 };
+                  if (newQ.question_de || newQ.question_en) parsedRows.push(newQ);
+              }
+              if (parsedRows.length > 0) {
+                  await upsertQuestions(parsedRows);
+                  alert(`✅ ${parsedRows.length} importiert!`);
+                  loadQuestions(); loadStats();
+              }
+          } catch (err) { alert("Error: " + err.message); } 
+          finally { setIsImporting(false); e.target.value = ''; }
+      };
+      reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleExport = () => {
+      const headers = ["id", "question_de", "option_de_1", "option_de_2", "option_de_3", "option_de_4", "question_en", "option_en_1", "option_en_2", "option_en_3", "option_en_4", "correct_index", "difficulty"];
+      const csvContent = [headers.join(';'), ...questions.map(q => headers.map(h => `"${String(q[h]||'').replace(/"/g, '""')}"`).join(';'))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = "satoshi_questions_export.csv";
+      document.body.appendChild(link); link.click();
+  };
+
+  const handleDeleteQuestion = async (id) => {
+      if(!confirm("Löschen?")) return;
+      await deleteQuestion(id);
+      loadQuestions(); loadStats();
+  };
+
+  const handleDeleteGame = async (id) => {
+      if(!confirm("Spiel wirklich löschen?")) return;
+      await supabase.from('duels').delete().eq('id', id);
+      loadGames(); loadStats();
+  };
+
+  const openSubmission = (submission) => {
+    const opts = Array.isArray(submission.options) ? submission.options : [];
+    const lang = submission.language || 'de';
+    const initial = {
+      question_de: lang === 'de' ? submission.question : '',
+      question_en: lang === 'en' ? submission.question : '',
+      question_es: lang === 'es' ? submission.question : '',
+      option_de_1: lang === 'de' ? (opts[0] || '') : '',
+      option_de_2: lang === 'de' ? (opts[1] || '') : '',
+      option_de_3: lang === 'de' ? (opts[2] || '') : '',
+      option_de_4: lang === 'de' ? (opts[3] || '') : '',
+      option_en_1: lang === 'en' ? (opts[0] || '') : '',
+      option_en_2: lang === 'en' ? (opts[1] || '') : '',
+      option_en_3: lang === 'en' ? (opts[2] || '') : '',
+      option_en_4: lang === 'en' ? (opts[3] || '') : '',
+      option_es_1: lang === 'es' ? (opts[0] || '') : '',
+      option_es_2: lang === 'es' ? (opts[1] || '') : '',
+      option_es_3: lang === 'es' ? (opts[2] || '') : '',
+      option_es_4: lang === 'es' ? (opts[3] || '') : '',
+      correct_index: submission.correct || 0,
+      difficulty: 'medium',
+      is_active: 1
+    };
+    setActiveSubmission(submission);
+    setSubmissionForm(initial);
+    setSubmissionError('');
+    setSubmissionOpen(true);
+  };
+
+  const updateSubmissionForm = (key, value) => {
+    setSubmissionForm(prev => ({ ...prev, [key]: value }));
+  };
+
+  const validateSubmissionForm = () => {
+    const langs = ['de', 'en', 'es'];
+    for (const lang of langs) {
+      const q = submissionForm[`question_${lang}`];
+      const opts = [1, 2, 3, 4].map(i => submissionForm[`option_${lang}_${i}`]);
+      if (!q || opts.some(o => !o)) return false;
+    }
+    return true;
+  };
+
+  const handleAcceptSubmission = async () => {
+    if (!activeSubmission || !submissionForm) return;
+    if (!validateSubmissionForm()) {
+      setSubmissionError(t('admin_submission_required'));
+      return;
+    }
+
+    const payload = { ...submissionForm };
+    const { error } = await upsertQuestions([payload]);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await updateSubmissionStatus(activeSubmission.id, 'accepted');
+    await deleteSubmission(activeSubmission.id);
+    setSubmissions(prev => prev.filter(s => s.id !== activeSubmission.id));
+    setSubmissionOpen(false);
+    setActiveSubmission(null);
+    setSubmissionForm(null);
+    loadSubmissions();
+    loadStats();
+  };
+
+  const handleRejectSubmission = async () => {
+    if (!activeSubmission) return;
+    await updateSubmissionStatus(activeSubmission.id, 'rejected');
+    await deleteSubmission(activeSubmission.id);
+    setSubmissions(prev => prev.filter(s => s.id !== activeSubmission.id));
+    setSubmissionOpen(false);
+    setActiveSubmission(null);
+    setSubmissionForm(null);
+    loadSubmissions();
+    loadStats();
+  };
+
+
+  // --- RENDER HELPERS ---
+  const filteredQuestions = questions.filter(q => {
+      if (!searchTerm) return true;
+      const t = (q.question_de || '') + (q.question_en || '') + (q.question_es || '');
+      return t.toLowerCase().includes(searchTerm.toLowerCase());
+  });
+
+    const filteredGames = games.filter(g => {
+      if (gamesFilter === 'open' && g.status !== 'open') return false;
+      if (!searchTerm) return true;
+      const t = (g.creator || '') + (g.challenger || '') + (g.id || '');
+      return t.toLowerCase().includes(searchTerm.toLowerCase());
+    });
+
+
+  return (
     <Background>
-      <div className="flex flex-col h-full w-full max-w-5xl mx-auto relative overflow-hidden p-4">
+      <div className="flex flex-col h-full w-full max-w-6xl mx-auto overflow-hidden p-4">
         
         {/* HEADER */}
-        <div className="flex items-center gap-4 mb-6 pt-2">
-          <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
-            <ArrowLeft className="text-white" size={20}/>
-          </button>
-          <h1 className="text-2xl font-black text-white uppercase tracking-widest">⚙️ {t('admin_title')}</h1>
+        <div className="shrink-0 flex items-center justify-between mb-6">
+           <div className="flex items-center gap-4">
+              <button onClick={handleBack} className="bg-white/5 hover:bg-white/10 p-2 rounded-xl border border-white/5"><ArrowLeft className="text-white" size={20}/></button>
+              <h1 className="text-xl md:text-2xl font-black text-white uppercase tracking-widest"><span className="text-orange-500">ADMIN</span> DASHBOARD</h1>
+           </div>
+           
+             {/* TABS NAVIGATION (removed) */}
         </div>
 
-        {/* STATS OVERVIEW */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3 mb-4 lg:mb-6">
-          <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 rounded-xl lg:rounded-2xl p-3 lg:p-4">
-            <div className="text-xs text-blue-400 font-bold uppercase mb-1 truncate">{t('admin_total_questions')}</div>
-            <div className="text-xl lg:text-2xl font-black text-blue-300">{stats.totalQuestions}</div>
-          </div>
-          <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 rounded-xl lg:rounded-2xl p-3 lg:p-4">
-            <div className="text-xs text-orange-400 font-bold uppercase mb-1 truncate">{t('admin_total_submissions')}</div>
-            <div className="text-xl lg:text-2xl font-black text-orange-300">{stats.pendingSubmissions}</div>
-          </div>
-          <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/30 rounded-xl lg:rounded-2xl p-3 lg:p-4">
-            <div className="text-xs text-purple-400 font-bold uppercase mb-1 truncate">{t('admin_statistics')}</div>
-            <div className="text-xl lg:text-2xl font-black text-purple-300">{submissions.length}</div>
-          </div>
-          <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 border border-green-500/30 rounded-xl lg:rounded-2xl p-3 lg:p-4">
-            <div className="text-xs text-green-400 font-bold uppercase mb-1 truncate">{t('admin_total_games')}</div>
-            <div className="text-xl lg:text-2xl font-black text-green-300">{stats.totalGames}</div>
-          </div>
-        </div>
-
-        {/* TAB NAVIGATION */}
-        <div className="flex gap-1 lg:gap-2 mb-3 lg:mb-4 overflow-x-auto pb-2 border-b border-white/5 -mx-4 px-4">
-          <button 
-            onClick={() => setTab('submissions')} 
-            className={`px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm whitespace-nowrap transition-colors flex items-center gap-1 ${
-              tab === 'submissions' 
-                ? 'bg-orange-500 text-black' 
-                : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            <Inbox size={14}/> <span className="hidden sm:inline">{t('admin_submissions_tab')}</span>
-          </button>
-          <button 
-            onClick={() => setTab('questions')} 
-            className={`px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm whitespace-nowrap transition-colors flex items-center gap-1 ${
-              tab === 'questions' 
-                ? 'bg-blue-500 text-black' 
-                : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            <List size={14}/> <span className="hidden sm:inline">{t('admin_questions_tab')}</span>
-          </button>
-          <button 
-            onClick={() => setTab('games')} 
-            className={`px-3 lg:px-4 py-2 rounded-lg font-bold text-xs lg:text-sm whitespace-nowrap transition-colors flex items-center gap-1 ${
-              tab === 'games' 
-                ? 'bg-green-500 text-black' 
-                : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
-          >
-            <BarChart3 size={14}/> <span className="hidden sm:inline">{t('admin_games_tab')}</span>
-          </button>
-        </div>
-
-        {/* CONTENT AREA */}
-        <div className="flex-1 overflow-y-auto scrollbar-hide bg-[#0a0a0a] rounded-xl lg:rounded-2xl p-3 lg:p-4">
-          
-          {/* SUBMISSIONS TAB */}
-          {tab === 'submissions' && (
-            <div>
-              {/* Filter */}
-              <div className="flex gap-1 lg:gap-2 mb-3 lg:mb-4 overflow-x-auto pb-2">
-                {['pending', 'approved', 'rejected', 'all'].map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setSubmissionFilter(f)}
-                    className={`px-2 lg:px-3 py-1 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
-                      submissionFilter === f
-                        ? 'bg-orange-500 text-black'
-                        : 'bg-white/10 text-white hover:bg-white/20'
-                    }`}
-                  >
-                    {f === 'pending' && t('admin_submissions_pending')}
-                    {f === 'approved' && t('admin_submissions_approved')}
-                    {f === 'rejected' && t('admin_submissions_rejected')}
-                    {f === 'all' && 'Alle'}
-                  </button>
-                ))}
-              </div>
-
-              {loadingSub ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="animate-spin text-orange-500" size={32}/>
+        {/* ================= CONTENT AREA ================= */}
+        <div className="flex-1 min-h-0 relative flex flex-col">
+            
+            {/* VIEW: DASHBOARD (JETZT 2x2) */}
+            {activeTab === 'dashboard' && (
+                // HIER GEÄNDERT: grid-cols-2 und zentriert
+                <div className="grid grid-cols-2 gap-6 max-w-3xl mx-auto w-full animate-in fade-in content-start mt-8">
+                    <button onClick={() => setActiveTab('players')} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors">
+                        <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 mb-2"><Globe size={28}/></div>
+                        <span className="text-4xl font-black text-white">{stats.users}</span>
+                        <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Spieler</span>
+                    </button>
+                    <button onClick={() => { setGamesFilter('all'); setActiveTab('games'); }} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors">
+                        <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 mb-2"><Trophy size={28}/></div>
+                        <span className="text-4xl font-black text-white">{stats.games}</span>
+                        <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Spiele</span>
+                    </button>
+                    <button onClick={() => { setGamesFilter('open'); setActiveTab('games'); }} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors">
+                        <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center text-yellow-400 mb-2"><Coins size={28}/></div>
+                        <span className="text-4xl font-black text-white">{stats.pending}</span>
+                        <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Offen</span>
+                    </button>
+                    <button onClick={() => setActiveTab('questions')} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors">
+                        <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 mb-2"><ListChecks size={28}/></div>
+                        <span className="text-4xl font-black text-white">{stats.questions}</span>
+                        <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Fragen</span>
+                    </button>
+                    <button onClick={() => setActiveTab('inbox')} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors">
+                      <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 mb-2"><LayoutDashboard size={28}/></div>
+                      <span className="text-4xl font-black text-white">{stats.inbox}</span>
+                      <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">{t('admin_inbox')}</span>
+                    </button>
                 </div>
-              ) : submissions.length === 0 ? (
-                <div className="text-center py-12">
-                  <Inbox className="text-neutral-600 mx-auto mb-3" size={40}/>
-                  <p className="text-neutral-500 font-bold text-sm">{t('admin_no_data')}</p>
-                </div>
-              ) : (
-                <div className="space-y-2 lg:space-y-3">
-                  {submissions.map(s => (
-                    <div key={s.id} className="bg-[#161616] border border-white/10 rounded-lg lg:rounded-2xl p-3 lg:p-4 hover:border-white/20 transition-colors">
-                      <div className="grid grid-cols-1 gap-2 lg:gap-3">
-                        {/* Question */}
-                        <div>
-                          <div className="text-xs text-neutral-500 font-bold uppercase mb-1">{t('admin_question')}</div>
-                          <p className="text-white font-bold text-sm lg:text-base">{s.question}</p>
-                        </div>
+            )}
 
-                        {/* Meta Info */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 lg:gap-2 text-xs">
-                          <div>
-                            <span className="text-neutral-600 font-bold">{t('admin_language')}:</span>
-                            <span className="text-white ml-1">{s.language || 'de'}</span>
-                          </div>
-                          <div>
-                            <span className="text-neutral-600 font-bold">{t('admin_submitted_by')}:</span>
-                            <span className="text-white ml-1 truncate">{s.created_by || 'Unbekannt'}</span>
-                          </div>
-                          <div>
-                            <span className="text-neutral-600 font-bold">{t('admin_submitted_on')}:</span>
-                            <span className="text-white ml-1">{new Date(s.created_at).toLocaleDateString('de-DE')}</span>
-                          </div>
+            {/* VIEW: GAMES */}
+            {activeTab === 'games' && (
+                <div className="flex flex-col h-full animate-in fade-in">
+                    <div className="shrink-0 mb-4 flex gap-4">
+                        <div className="flex-1 relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                            <input type="text" placeholder="Suche Spieler oder ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
                         </div>
-
-                        {/* Options */}
-                        <div>
-                          <div className="text-xs text-neutral-600 font-bold uppercase mb-2">{t('admin_answers')}</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 lg:gap-2">
-                            {Array.isArray(s.options) ? s.options.map((opt, idx) => (
-                              <div 
-                                key={idx} 
-                                className={`p-2 rounded-lg text-xs font-bold ${
-                                  idx === s.correct 
-                                    ? 'bg-green-500/30 text-green-300 border border-green-500' 
-                                    : 'bg-white/5 text-white border border-white/10'
-                                }`}
-                              >
-                                <span className="font-black">{idx + 1}.</span> {opt}
-                              </div>
-                            )) : <p className="text-neutral-500 text-xs">{t('admin_error')}</p>}
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        {submissionFilter !== 'approved' && submissionFilter !== 'rejected' && (
-                          <div className="flex gap-2 pt-2 lg:pt-3 border-t border-white/5">
-                            <button
-                              onClick={() => acceptSubmission(s)}
-                              disabled={actionInProgress === s.id}
-                              className="flex-1 flex items-center justify-center gap-1 lg:gap-2 px-2 lg:px-3 py-2 bg-green-500 hover:bg-green-600 text-black font-bold text-xs lg:text-sm rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              {actionInProgress === s.id ? <Loader2 className="animate-spin" size={16}/> : <CheckCircle2 size={16}/>}
-                              <span className="hidden sm:inline">{t('admin_approve')}</span>
-                              <span className="sm:hidden">✓</span>
-                            </button>
-                            <button
-                              onClick={() => rejectSubmission(s)}
-                              disabled={actionInProgress === s.id}
-                              className="flex-1 flex items-center justify-center gap-1 lg:gap-2 px-2 lg:px-3 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs lg:text-sm rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              {actionInProgress === s.id ? <Loader2 className="animate-spin" size={16}/> : <XCircle size={16}/>}
-                              <span className="hidden sm:inline">{t('admin_reject')}</span>
-                              <span className="sm:hidden">✕</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                        <button onClick={loadGames} className="p-3 bg-white/5 rounded-xl text-neutral-400 hover:text-white"><RefreshCw size={18}/></button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* QUESTIONS TAB */}
-          {tab === 'questions' && (
-            <div>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3 lg:mb-4">
-                <h3 className="text-white font-black text-sm lg:text-lg">{t('admin_questions_tab')} ({questions.length})</h3>
-                <div className="flex gap-2 w-full sm:w-auto flex-wrap">
-                  <button 
-                    onClick={() => setShowImportUrl(!showImportUrl)}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-1 lg:gap-2 px-3 lg:px-4 py-2 bg-purple-500 hover:bg-purple-600 text-black font-bold text-xs lg:text-sm rounded-lg transition-colors"
-                  >
-                    <Upload size={16}/> 
-                    <span className="hidden sm:inline">URL</span>
-                  </button>
-                  <button 
-                    onClick={handleImportClick}
-                    disabled={actionInProgress === 'importing'}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-1 lg:gap-2 px-3 lg:px-4 py-2 bg-green-500 hover:bg-green-600 text-black font-bold text-xs lg:text-sm rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {actionInProgress === 'importing' ? <Loader2 size={16} className="animate-spin"/> : <Upload size={16}/>} 
-                    <span className="hidden sm:inline">{t('admin_import_csv')}</span>
-                    <span className="sm:hidden">Import</span>
-                  </button>
-                  <label className="flex items-center gap-2 text-xs text-neutral-300 px-2">
-                    <input type="checkbox" checked={importReplace} onChange={e => setImportReplace(e.target.checked)} className="h-4 w-4" />
-                    <span className="hidden sm:inline">Replace existing</span>
-                  </label>
-                  <button 
-                    onClick={handleExport}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-1 lg:gap-2 px-3 lg:px-4 py-2 bg-blue-500 hover:bg-blue-600 text-black font-bold text-xs lg:text-sm rounded-lg transition-colors w-full sm:w-auto"
-                  >
-                    <Download size={16}/> <span className="hidden sm:inline">{t('admin_export_csv')}</span>
-                    <span className="sm:hidden">Export</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* URL Import Modal */}
-              {showImportUrl && (
-                <div className="bg-[#161616] border border-white/10 rounded-lg p-3 mb-3 lg:mb-4">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs text-neutral-400 font-bold uppercase">CSV-URL von Supabase</label>
-                    <input 
-                      type="text" 
-                      placeholder="https://..." 
-                      value={importUrl}
-                      onChange={(e) => setImportUrl(e.target.value)}
-                      className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-purple-500 transition-colors"
-                    />
-                    <p className="text-xs text-neutral-500">💡 Tipp: Öffne deine Supabase Storage-Datei und nutze den öffentlichen Link</p>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={importFromUrl}
-                        disabled={!importUrl.trim() || actionInProgress === 'importing'}
-                        className="flex-1 px-3 py-2 bg-purple-500 hover:bg-purple-600 text-black font-bold text-sm rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {actionInProgress === 'importing' ? 'Importiere...' : 'Importieren'}
-                      </button>
-                      <button 
-                        onClick={() => setShowImportUrl(false)}
-                        className="flex-1 px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-white font-bold text-sm rounded-lg transition-colors"
-                      >
-                        Abbrechen
-                      </button>
+                    <div className="flex-1 overflow-y-auto min-h-0 bg-[#111]/40 border border-white/5 rounded-2xl custom-scrollbar">
+                        <table className="w-full text-left text-sm text-neutral-400">
+                            <thead className="bg-white/5 text-xs uppercase font-bold text-white sticky top-0 z-10 backdrop-blur-md">
+                                <tr>
+                                    <th className="p-4">Status</th>
+                                    <th className="p-4">Spieler</th>
+                                    <th className="p-4 hidden md:table-cell">Pot</th>
+                                    <th className="p-4 hidden md:table-cell">Datum</th>
+                                    <th className="p-4 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                                {loading ? <tr><td colSpan="5" className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/></td></tr> :
+                                 filteredGames.map(g => (
+                                    <tr key={g.id} className="hover:bg-white/5 transition-colors">
+                                        <td className="p-4"><StatusBadge status={g.status}/></td>
+                                        <td className="p-4">
+                                            <div className="flex flex-col">
+                                                <span className="text-white font-bold flex items-center gap-2">
+                                                    {g.creator} <span className="text-[10px] text-neutral-600">vs</span> {g.challenger || '?'}
+                                                </span>
+                                                <span className="text-[10px] font-mono opacity-50">{String(g.id || '').slice(0,8)}...</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-4 hidden md:table-cell"><span className="text-yellow-500 font-bold">{g.amount * 2} Sats</span></td>
+                                        <td className="p-4 hidden md:table-cell text-xs">{formatDate(g.created_at)}</td>
+                                        <td className="p-4 text-right">
+                                            <button onClick={() => handleDeleteGame(g.id)} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={16}/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
+                </div>
+            )}
+
+            {/* VIEW: PLAYERS */}
+            {activeTab === 'players' && (
+              <div className="flex flex-col h-full animate-in fade-in">
+                <div className="shrink-0 mb-4 flex gap-4">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                    <input type="text" placeholder="Suche Spieler..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
                   </div>
+                  <button onClick={loadPlayers} className="p-3 bg-white/5 rounded-xl text-neutral-400 hover:text-white"><RefreshCw size={18}/></button>
                 </div>
-              )}
 
-              {loadingQ ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="animate-spin text-blue-500" size={32}/>
+                <div className="flex-1 overflow-y-auto min-h-0 bg-[#111]/40 border border-white/5 rounded-2xl custom-scrollbar">
+                  <table className="w-full text-left text-sm text-neutral-400">
+                    <thead className="bg-white/5 text-xs uppercase font-bold text-white sticky top-0 z-10 backdrop-blur-md">
+                      <tr>
+                        <th className="p-4">Spieler</th>
+                        <th className="p-4 hidden md:table-cell">Spiele</th>
+                        <th className="p-4 hidden md:table-cell">Siege</th>
+                        <th className="p-4 hidden md:table-cell">Niederl.</th>
+                        <th className="p-4 hidden md:table-cell">Sats</th>
+                        <th className="p-4 text-right">Aktualisiert</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {loading ? <tr><td colSpan="6" className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/></td></tr> :
+                       players.filter(p => {
+                         if (!searchTerm) return true;
+                         return (p.username || '').toLowerCase().includes(searchTerm.toLowerCase());
+                       }).map(p => (
+                        <tr key={p.username} className="hover:bg-white/5 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-md bg-neutral-800 border border-white/10 overflow-hidden">
+                                <img src={p.avatar || `https://api.dicebear.com/9.x/avataaars/svg?seed=${p.username}`} alt={p.username} className="w-full h-full object-cover" />
+                              </div>
+                              <span className="text-white font-bold uppercase text-sm">{p.username}</span>
+                            </div>
+                          </td>
+                          <td className="p-4 hidden md:table-cell">{p.games_played || 0}</td>
+                          <td className="p-4 hidden md:table-cell text-green-400">{p.wins || 0}</td>
+                          <td className="p-4 hidden md:table-cell text-red-400">{p.losses || 0}</td>
+                          <td className="p-4 hidden md:table-cell text-yellow-400">{p.total_sats_won || 0}</td>
+                          <td className="p-4 text-right text-xs">{formatDate(p.last_updated)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ) : questions.length === 0 ? (
-                <div className="text-center py-12">
-                  <List className="text-neutral-600 mx-auto mb-3" size={40}/>
-                  <p className="text-neutral-500 font-bold text-sm">{t('admin_no_data')}</p>
-                </div>
-              ) : (
-                <div className="space-y-1 lg:space-y-2">
-                  {questionGroups.map(g => {
-                    const q = g.representative;
-                    return (
-                      <div key={q.id} onClick={() => openEditor(q)} className="cursor-pointer bg-[#161616] border border-white/10 rounded-lg lg:rounded-lg p-2 lg:p-3 hover:border-white/20 transition-colors">
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 items-center">
-                          <div className="sm:col-span-6">
-                            <p className="text-white font-bold text-xs lg:text-sm line-clamp-2">{q.question}</p>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-xs font-bold px-2 py-1 bg-blue-500/20 text-blue-300 rounded inline-block">
-                              {q.language || 'de'}
-                            </span>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-xs font-bold px-2 py-1 bg-green-500/20 text-green-300 rounded inline-block">
-                              A{(q.correct || 0) + 1}
-                            </span>
-                          </div>
-                          <div className="sm:col-span-2 text-right">
-                            <button className="px-2 py-1 text-red-400 hover:text-red-300 transition-colors">
-                              <Trash2 size={16}/>
+              </div>
+            )}
+
+            {/* VIEW: QUESTIONS */}
+            {activeTab === 'questions' && (
+                <div className="flex flex-col h-full animate-in fade-in">
+                    <div className="shrink-0 flex flex-col md:flex-row gap-4 mb-4 bg-[#111]/80 p-4 rounded-2xl border border-white/5">
+                        <div className="flex-1 relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                            <input type="text" placeholder="Frage suchen..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
+                        </div>
+                        <div className="flex gap-2 items-center justify-end">
+                            <label className="text-[10px] text-neutral-400 uppercase cursor-pointer bg-black/40 px-3 py-2 rounded-lg border border-white/5 flex gap-2 hover:bg-white/5">
+                                <input type="checkbox" checked={importReplace} onChange={e => setImportReplace(e.target.checked)} className="accent-red-500" /> Replace
+                            </label>
+                            <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-xl font-bold text-xs hover:bg-blue-600/30">
+                                <Download size={16}/> Export
                             </button>
-                          </div>
+                            <div className="relative">
+                                <input id="csvInput" type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
+                                <button onClick={() => document.getElementById('csvInput').click()} disabled={isImporting} className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-black rounded-xl font-bold text-xs shadow-lg shadow-orange-500/20 hover:bg-orange-400">
+                                    {isImporting ? <Loader2 className="animate-spin" size={16}/> : <FileUp size={16}/>} Import
+                                </button>
+                            </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {editorOpen && (
-            <QuestionEditor
-              open={editorOpen}
-              onClose={async () => { await loadQuestions(editorQuestion?.id); setEditorOpen(false); setEditorQuestion(null); }}
-              question={editorQuestion}
-              onSaved={async (rowOrId) => {
-                // If we received the updated row object, apply optimistic update to local state
-                try {
-                  if (rowOrId && typeof rowOrId === 'object' && rowOrId.id) {
-                    setQuestions(qs => qs.map(q => q.id === rowOrId.id ? { ...q, ...rowOrId } : q));
-                    console.log('Optimistically updated local questions for id', rowOrId.id);
-                    await loadQuestions(rowOrId.id);
-                  } else if (typeof rowOrId === 'string') {
-                    await loadQuestions(rowOrId);
-                  } else {
-                    await loadQuestions(editorQuestion?.id);
-                  }
-                } catch (e) {
-                  console.warn('onSaved handler error', e);
-                  await loadQuestions(editorQuestion?.id);
-                }
-              }}
-            />
-          )}
-
-          {/* GAMES TAB */}
-          {tab === 'games' && (
-            <div>
-              <h3 className="text-white font-black text-sm lg:text-lg mb-3 lg:mb-4">{t('admin_games_tab')} ({games.length})</h3>
-
-              {loadingG ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="animate-spin text-green-500" size={32}/>
-                </div>
-              ) : games.length === 0 ? (
-                <div className="text-center py-12">
-                  <BarChart3 className="text-neutral-600 mx-auto mb-3" size={40}/>
-                  <p className="text-neutral-500 font-bold text-sm">{t('admin_no_data')}</p>
-                </div>
-              ) : (
-                <div className="space-y-1 lg:space-y-2">
-                  {games.map(g => (
-                    <div key={g.id} className="bg-[#161616] border border-white/10 rounded-lg lg:rounded-lg p-2 lg:p-3 hover:border-white/20 transition-colors">
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-1 sm:gap-3 items-center text-xs lg:text-sm">
-                        <div className="sm:col-span-5">
-                          <p className="text-white font-bold line-clamp-1">{g.creator}</p>
-                          <p className="text-neutral-500 text-xs line-clamp-1">vs {g.challenger || '—'}</p>
-                        </div>
-                        <div className="sm:col-span-3">
-                          <span className="text-white font-bold">{g.amount} sats</span>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <span className={`text-xs font-bold px-2 py-1 rounded inline-block ${
-                            g.status === 'finished' ? 'bg-green-500/20 text-green-300' : 
-                            g.status === 'active' ? 'bg-blue-500/20 text-blue-300' :
-                            'bg-neutral-500/20 text-neutral-300'
-                          }`}>
-                            {g.status}
-                          </span>
-                        </div>
-                        <div className="sm:col-span-2 text-right">
-                          <span className="text-neutral-500 text-xs">{new Date(g.created_at).toLocaleDateString('de-DE', {month: 'short', day: 'numeric'})}</span>
-                        </div>
-                      </div>
                     </div>
-                  ))}
+
+                    <div className="flex-1 overflow-y-auto min-h-0 bg-[#111]/40 border border-white/5 rounded-2xl p-2 custom-scrollbar">
+                        {loading ? <div className="text-center p-10 text-neutral-500"><Loader2 className="animate-spin mx-auto"/></div> : 
+                        filteredQuestions.map(q => (
+                            <div key={q.id} onClick={() => { setEditorQuestion(q); setEditorOpen(true); }} className="bg-white/5 border border-white/5 p-3 rounded-xl mb-2 cursor-pointer hover:bg-white/10 transition-colors flex justify-between items-start">
+                                <div>
+                                    <h4 className="text-white font-bold text-sm line-clamp-1">{q.question_de || q.question_en || '---'}</h4>
+                                    <div className="flex gap-3 text-[10px] text-neutral-500 mt-1">
+                                        <span className="font-mono">ID: {q.id?.slice(0,6)}</span>
+                                        <span className="text-green-500">Lösung: {(q.correct_index||0)+1}</span>
+                                        <span>{q.difficulty}</span>
+                                    </div>
+                                </div>
+                                <button onClick={(e) => { e.stopPropagation(); handleDeleteQuestion(q.id); }} className="p-2 text-neutral-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg"><Trash2 size={16}/></button>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-              )}
-            </div>
-          )}
+            )}
+
+            {/* VIEW: INBOX */}
+            {activeTab === 'inbox' && (
+                <div className="flex flex-col h-full animate-in fade-in">
+                    <div className="shrink-0 mb-4 flex gap-4">
+                        <div className="flex-1 relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={16} />
+                            <input type="text" placeholder={t('admin_submission_search')} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none" />
+                        </div>
+                        <button onClick={loadSubmissions} className="p-3 bg-white/5 rounded-xl text-neutral-400 hover:text-white"><RefreshCw size={18}/></button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto min-h-0 bg-[#111]/40 border border-white/5 rounded-2xl custom-scrollbar">
+                        {loading ? (
+                          <div className="text-center p-10 text-neutral-500"><Loader2 className="animate-spin mx-auto"/></div>
+                        ) : submissions.filter(s => {
+                          const isPending = s.status ? s.status === 'pending' : true;
+                          if (!isPending) return false;
+                          if (!searchTerm) return true;
+                          return `${s.question || ''} ${s.submitter || ''}`.toLowerCase().includes(searchTerm.toLowerCase());
+                        }).map(s => (
+                          <button key={s.id} onClick={() => openSubmission(s)} className="w-full text-left p-4 border-b border-white/5 hover:bg-white/5 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-white font-bold text-sm line-clamp-1">{s.question}</div>
+                                <div className="text-[10px] text-neutral-500 mt-1">
+                                  {t('admin_submission_language')}: {String(s.language || 'de').toUpperCase()} · {t('admin_submission_submitter')}: {s.submitter || '-'}
+                                </div>
+                              </div>
+                              <div className="text-[10px] text-neutral-500">{formatDate(s.created_at)}</div>
+                            </div>
+                          </button>
+                        ))}
+
+                        {!loading && submissions.length === 0 && (
+                          <div className="text-center p-10 text-neutral-500">{t('admin_submissions_empty')}</div>
+                        )}
+                    </div>
+                </div>
+            )}
 
         </div>
+
+        {/* EDITOR OVERLAY */}
+        <QuestionEditorInternal 
+            open={editorOpen} 
+            onClose={() => { setEditorOpen(false); setEditorQuestion(null); }} 
+            question={editorQuestion} 
+            onSaved={() => { loadQuestions(); loadStats(); setEditorOpen(false); }} 
+        />
+
+        {/* SUBMISSION OVERLAY */}
+        {submissionOpen && submissionForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-[#111] border border-white/10 w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="shrink-0 flex items-center justify-between p-4 border-b border-white/5 bg-[#161616]">
+                <h2 className="text-white font-black text-lg uppercase tracking-wider">{t('admin_inbox')}</h2>
+                <button onClick={() => setSubmissionOpen(false)} className="text-neutral-500 hover:text-white transition-colors"><X size={24} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                <div className="text-xs text-neutral-400 bg-white/5 border border-white/10 rounded-xl p-3">
+                  {t('admin_submission_original_correct')}: {Number.isFinite(activeSubmission?.correct) ? activeSubmission.correct + 1 : '-'}
+                  {Array.isArray(activeSubmission?.options) && activeSubmission?.options?.[activeSubmission?.correct] ? ` · ${activeSubmission.options[activeSubmission.correct]}` : ''}
+                </div>
+                {['de', 'en', 'es'].map(lang => (
+                  <div key={lang} className="space-y-2">
+                    <h3 className="text-xs font-bold text-neutral-500 uppercase">{lang.toUpperCase()}</h3>
+                    <textarea value={submissionForm[`question_${lang}`] || ''} onChange={e => updateSubmissionForm(`question_${lang}`, e.target.value)} className="w-full bg-[#222] border border-white/10 rounded-xl p-3 text-white outline-none min-h-[70px]" placeholder={t('admin_submission_question')} />
+                    {[1, 2, 3, 4].map((num) => (
+                      <textarea key={num} value={submissionForm[`option_${lang}_${num}`] || ''} onChange={e => updateSubmissionForm(`option_${lang}_${num}`, e.target.value)} className="w-full bg-[#222] border border-white/10 rounded-xl p-3 text-sm text-white outline-none min-h-[50px]" placeholder={`${t('admin_submission_option')} ${num}`} />
+                    ))}
+                  </div>
+                ))}
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-neutral-500 uppercase">{t('admin_submission_correct')}</label>
+                  <select value={submissionForm.correct_index} onChange={e => updateSubmissionForm('correct_index', parseInt(e.target.value))} className="w-full bg-[#222] border border-white/10 rounded-xl p-3 text-white outline-none">
+                    {[0,1,2,3].map(i => <option key={i} value={i}>{i + 1}</option>)}
+                  </select>
+                </div>
+
+                {submissionError && (
+                  <div className="text-red-400 text-xs font-bold bg-red-500/10 border border-red-500/30 p-3 rounded-xl">
+                    {submissionError}
+                  </div>
+                )}
+              </div>
+
+              <div className="shrink-0 p-4 border-t border-white/5 bg-[#161616] flex justify-end gap-3">
+                <button onClick={handleRejectSubmission} className="px-6 py-2 rounded-xl bg-red-500/20 text-red-300 text-sm font-black hover:bg-red-500/30">{t('admin_submission_reject')}</button>
+                <button onClick={handleAcceptSubmission} className="px-6 py-2 rounded-xl bg-green-500 text-black text-sm font-black hover:bg-green-400">{t('admin_submission_accept')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </Background>
   );
