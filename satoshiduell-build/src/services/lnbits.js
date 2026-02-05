@@ -1,8 +1,9 @@
 // src/services/lnbits.js
 
+import { supabase } from './supabase';
+
 const LNBITS_URL = import.meta.env.VITE_LNBITS_URL;
 const INVOICE_KEY = import.meta.env.VITE_LNBITS_INVOICE_KEY; 
-const ADMIN_KEY = import.meta.env.VITE_LNBITS_ADMIN_KEY;     
 
 // 1. INVOICE ERSTELLEN
 export const createInvoice = async (amount, memo) => {
@@ -39,24 +40,16 @@ export const createWithdrawLink = async (amount, gameId) => {
   console.log(`💸 Erzeuge Withdraw Link über ${sats} Sats...`);
 
   try {
-    const response = await fetch(`${LNBITS_URL}/withdraw/api/v1/links`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': ADMIN_KEY },
-      body: JSON.stringify({
-        title: `SatoshiDuell Win #${gameId}`, 
-        min_withdrawable: sats,     
-        max_withdrawable: sats,     
-        uses: 1,                   
-        wait_time: 1,              
-        is_unique: false // <--- FIX: False, damit Wallets nicht meckern
-      }),
+    const { data, error } = await supabase.functions.invoke('create-withdraw-link', {
+      body: { amount: sats, gameId }
     });
 
-    if (!response.ok) throw new Error('Konnte Auszahlung nicht erstellen');
+    if (error || !data?.lnurl) {
+      const msg = error?.message || data?.error || 'Konnte Auszahlung nicht erstellen';
+      throw new Error(msg);
+    }
 
-    const data = await response.json();
-    // Wir geben jetzt ein OBJEKT zurück mit id und lnurl
-    return { lnurl: data.lnurl, id: data.id }; 
+    return { lnurl: data.lnurl, id: data.id };
 
   } catch (error) {
     console.error("Withdraw Exception:", error);
@@ -67,16 +60,12 @@ export const createWithdrawLink = async (amount, gameId) => {
 // 4. PRÜFEN OB ABGEHOBEN WURDE (NEU)
 export const getWithdrawLinkStatus = async (linkId) => {
   try {
-    const response = await fetch(`${LNBITS_URL}/withdraw/api/v1/links/${linkId}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': ADMIN_KEY },
+    const { data, error } = await supabase.functions.invoke('create-withdraw-link', {
+      body: { linkId }
     });
-    
-    if (!response.ok) return false;
-    const data = await response.json();
-    
-    // Wenn 'used' >= 1 ist, wurde das Geld abgehoben
-    return data.used >= 1;
+
+    if (error || !data) return false;
+    return Boolean(data.used);
   } catch (error) {
     return false;
   }
