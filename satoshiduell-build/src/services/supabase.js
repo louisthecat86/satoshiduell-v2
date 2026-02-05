@@ -11,12 +11,34 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 // ==========================================
 
 // 1. Hashing (SHA-256)
-async function hashPin(pin) {
-  const msgBuffer = new TextEncoder().encode(String(pin).trim());
+async function hashValue(value) {
+  const msgBuffer = new TextEncoder().encode(String(value).trim());
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+async function hashPin(pin) {
+  return hashValue(pin);
+}
+
+async function hashToken(token) {
+  return hashValue(token);
+}
+
+const generateToken = () => {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `T-${hex}`;
+};
+
+const generateShortToken = (length = 10) => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => alphabet[b % alphabet.length]).join('');
+};
 
 // 2. Normalisierung (Erzwingt Kleinschreibung)
 const toLower = (str) => (str ? str.toLowerCase().trim() : null);
@@ -768,6 +790,34 @@ export const uploadUserAvatar = async (username, file) => {
   }
 };
 
+export const uploadTournamentImage = async (tournamentId, file) => {
+  if (!tournamentId || !file) return { url: null, path: null };
+
+  const fileExt = file.name.split('.').pop();
+  const safeId = String(tournamentId).replace(/[^a-z0-9_-]/gi, '');
+  const fileName = `tournaments/${safeId}/${Date.now()}.${fileExt}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('tournament-images')
+    .upload(fileName, file, { cacheControl: '3600', upsert: true });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from('tournament-images').getPublicUrl(fileName);
+  return { url: data.publicUrl, path: fileName };
+};
+
+export const getTournamentImageUrl = (imagePath) => {
+  if (!imagePath) return null;
+  const { data } = supabase.storage.from('tournament-images').getPublicUrl(imagePath);
+  return data?.publicUrl || null;
+};
+
+export const deleteTournamentImage = async (imagePath) => {
+  if (!imagePath) return;
+  await supabase.storage.from('tournament-images').remove([imagePath]);
+};
+
 // ==========================================
 // 6. GAME FRAGEN
 // ==========================================
@@ -920,7 +970,7 @@ export const createTournament = async (tournamentData) => {
     .from('tournaments')
     .insert([{
       ...tournamentData,
-      status: 'pending_payment',
+      status: 'registration',
       current_participants: 0,
       participants: [],
       accumulated_entry_fees: 0
@@ -941,6 +991,11 @@ export const updateTournament = async (tournamentId, updates) => {
 };
 
 export const deleteTournament = async (tournamentId) => {
+  const { data: tournament } = await fetchTournamentById(tournamentId);
+  if (tournament?.image_path) {
+    await deleteTournamentImage(tournament.image_path);
+  }
+
   const { data, error } = await supabase
     .from('tournaments')
     .delete()
@@ -1021,6 +1076,35 @@ const buildTournamentBracket = (participants, maxPlayers) => {
   return bracket;
 };
 
+const determineTournamentWinner = (participants, scores, times) => {
+  let winner = null;
+
+  participants.forEach((player) => {
+    const key = (player || '').toLowerCase();
+    if (!winner) {
+      winner = player;
+      return;
+    }
+
+    const winnerKey = (winner || '').toLowerCase();
+    const wScore = scores[winnerKey] ?? 0;
+    const wTime = times[winnerKey] ?? Number.MAX_SAFE_INTEGER;
+    const pScore = scores[key] ?? 0;
+    const pTime = times[key] ?? Number.MAX_SAFE_INTEGER;
+
+    if (pScore > wScore || (pScore === wScore && pTime < wTime)) {
+      winner = player;
+    }
+  });
+
+  return winner;
+};
+
+const isTournamentExpired = (tournament) => {
+  if (!tournament?.play_until) return false;
+  return new Date(tournament.play_until) <= new Date();
+};
+
 export const addTournamentParticipant = async (tournamentId, username) => {
   const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
   if (fetchError || !tournament) return { data: null, error: fetchError };
@@ -1028,33 +1112,205 @@ export const addTournamentParticipant = async (tournamentId, username) => {
   const normalizedName = (username || '').trim();
   if (!normalizedName) return { data: null, error: new Error('Ungültiger Spielername') };
 
+  const now = new Date();
+  if (tournament.play_until && new Date(tournament.play_until) <= now) {
+    return { data: null, error: new Error('Turnier ist abgelaufen') };
+  }
+
+  if (!['registration', 'active'].includes(tournament.status)) {
+    return { data: null, error: new Error('Turnier ist nicht offen') };
+  }
+
   const existing = (tournament.participants || []).some(
     (p) => (p || '').toLowerCase() === normalizedName.toLowerCase()
   );
   if (existing) return { data: tournament, error: null };
 
-  if (tournament.current_participants >= tournament.max_players) {
+  if (tournament.max_players && tournament.current_participants >= tournament.max_players) {
     return { data: null, error: new Error('Turnier ist voll') };
   }
 
   const updatedParticipants = [...(tournament.participants || []), normalizedName];
   const updatedEntryFees = (tournament.accumulated_entry_fees || 0) + (tournament.entry_fee || 0);
 
-  const isFull = updatedParticipants.length >= tournament.max_players;
   const updates = {
     participants: updatedParticipants,
     current_participants: updatedParticipants.length,
     accumulated_entry_fees: updatedEntryFees,
   };
 
-  if (isFull && tournament.status === 'registration') {
+  if (tournament.max_players && updatedParticipants.length >= tournament.max_players && tournament.status === 'registration') {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
-    updates.bracket = buildTournamentBracket(updatedParticipants, tournament.max_players);
   }
 
   const { data, error } = await updateTournament(tournamentId, updates);
   return { data, error };
+};
+
+export const submitTournamentResult = async (tournamentId, username, score, timeMs) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  const normalizedName = (username || '').trim().toLowerCase();
+  if (!normalizedName) return { data: null, error: new Error('Ungültiger Spielername') };
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const normalizedParticipants = participants.map(p => (p || '').toLowerCase());
+
+  if (!normalizedParticipants.includes(normalizedName)) {
+    return { data: null, error: new Error('Nicht im Turnier') };
+  }
+
+  const scores = { ...(tournament.participant_scores || {}) };
+  const times = { ...(tournament.participant_times || {}) };
+
+  if (scores[normalizedName] !== undefined && scores[normalizedName] !== null) {
+    return { data: tournament, error: null };
+  }
+
+  scores[normalizedName] = score;
+  times[normalizedName] = timeMs;
+
+  const updates = {
+    participant_scores: scores,
+    participant_times: times,
+  };
+
+  const allPlayed = normalizedParticipants.length > 0
+    && normalizedParticipants.every(p => scores[p] !== undefined && scores[p] !== null);
+  const hasCap = tournament.max_players && tournament.max_players > 0;
+  const isFull = hasCap ? normalizedParticipants.length >= tournament.max_players : false;
+
+  const shouldFinalize = (hasCap && isFull && allPlayed) || isTournamentExpired(tournament);
+  if (shouldFinalize && tournament.status !== 'finished') {
+    const winner = determineTournamentWinner(participants, scores, times);
+    updates.status = 'finished';
+    updates.finished_at = new Date().toISOString();
+    updates.winner = winner;
+    if (!tournament.winner_token) {
+      updates.winner_token = `T${generateShortToken(9)}`;
+      updates.winner_token_created_at = new Date().toISOString();
+    }
+  }
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+
+  if (data?.status === 'finished' && data?.image_path) {
+    await deleteTournamentImage(data.image_path);
+    await updateTournament(tournamentId, { image_url: null, image_path: null });
+  }
+
+  return { data, error };
+};
+
+export const finalizeTournamentIfReady = async (tournamentId) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  if (tournament.status === 'finished') return { data: tournament, error: null };
+
+  if (!isTournamentExpired(tournament)) return { data: tournament, error: null };
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const normalizedParticipants = participants.map(p => (p || '').toLowerCase());
+  const scores = tournament.participant_scores || {};
+  const times = tournament.participant_times || {};
+
+  if (normalizedParticipants.length === 0) return { data: tournament, error: null };
+
+  const winner = determineTournamentWinner(participants, scores, times);
+  const updates = {
+    status: 'finished',
+    finished_at: new Date().toISOString(),
+    winner,
+    winner_token: tournament.winner_token || `T${generateShortToken(9)}`,
+    winner_token_created_at: tournament.winner_token_created_at || new Date().toISOString(),
+  };
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+
+  if (data?.image_path) {
+    await deleteTournamentImage(data.image_path);
+    await updateTournament(tournamentId, { image_url: null, image_path: null });
+  }
+
+  return { data, error };
+};
+
+export const createTournamentToken = async (tournamentId, issuedTo = null, createdBy = null) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError || new Error('Turnier nicht gefunden') };
+
+  if (!tournament.max_players || tournament.max_players <= 0) {
+    const token = generateToken();
+    const tokenHash = await hashToken(token);
+
+    const { data, error } = await supabase
+      .from('tournament_tokens')
+      .insert([{
+        tournament_id: tournamentId,
+        token_hash: tokenHash,
+        issued_to: issuedTo || null,
+        created_by: createdBy || null,
+      }])
+      .select()
+      .single();
+
+    return { data, error, token };
+  }
+
+  const { count, error: countError } = await supabase
+    .from('tournament_tokens')
+    .select('*', { count: 'exact', head: true })
+    .eq('tournament_id', tournamentId);
+
+  if (countError) return { data: null, error: countError };
+  if ((count || 0) >= (tournament.max_players || 0)) {
+    return { data: null, error: new Error('Token-Limit erreicht') };
+  }
+
+  const token = generateToken();
+  const tokenHash = await hashToken(token);
+
+  const { data, error } = await supabase
+    .from('tournament_tokens')
+    .insert([{
+      tournament_id: tournamentId,
+      token_hash: tokenHash,
+      issued_to: issuedTo || null,
+      created_by: createdBy || null,
+    }])
+    .select()
+    .single();
+
+  return { data, error, token };
+};
+
+export const redeemTournamentToken = async (tournamentId, token, username) => {
+  if (!token) return { data: null, error: new Error('Token fehlt') };
+
+  const tokenHash = await hashToken(token);
+  const { data: tokenRow, error: fetchError } = await supabase
+    .from('tournament_tokens')
+    .select('*')
+    .eq('tournament_id', tournamentId)
+    .eq('token_hash', tokenHash)
+    .is('used_at', null)
+    .maybeSingle();
+
+  if (fetchError || !tokenRow) {
+    return { data: null, error: fetchError || new Error('Token ungültig') };
+  }
+
+  const { error: updateError } = await supabase
+    .from('tournament_tokens')
+    .update({ used_by: username || null, used_at: new Date().toISOString() })
+    .eq('id', tokenRow.id);
+
+  if (updateError) return { data: null, error: updateError };
+
+  return addTournamentParticipant(tournamentId, username);
 };
 
 export const removeTournamentParticipant = async (tournamentId, username) => {
@@ -1069,6 +1325,20 @@ export const removeTournamentParticipant = async (tournamentId, username) => {
     current_participants: updatedParticipants.length,
     accumulated_entry_fees: updatedEntryFees
   });
+
+  return { data, error };
+};
+
+export const fetchWinningTournamentsForUser = async (username) => {
+  const cleanName = toLower(username);
+  if (!cleanName) return { data: [], error: null };
+
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('id, name, winner, winner_token, winner_token_created_at')
+    .ilike('winner', cleanName)
+    .not('winner_token', 'is', null)
+    .order('winner_token_created_at', { ascending: false });
 
   return { data, error };
 };

@@ -349,7 +349,7 @@ const AdminView = ({ onBack }) => {
                   };
                   
                   // Nur hinzufügen wenn mindestens eine Frage vorhanden ist
-                  if (cleanQ.question_de || cleanQ.question_en) parsedRows.push(cleanQ);
+                  if (cleanQ.question_de || cleanQ.question_en || cleanQ.question_es) parsedRows.push(cleanQ);
               }
               
               console.log(`${parsedRows.length} Fragen geparst`);
@@ -410,8 +410,15 @@ const AdminView = ({ onBack }) => {
   };
 
   const handleExport = () => {
-      const headers = ["id", "question_de", "option_de_1", "option_de_2", "option_de_3", "option_de_4", "question_en", "option_en_1", "option_en_2", "option_en_3", "option_en_4", "correct_index", "difficulty"];
-      const csvContent = [headers.join(';'), ...questions.map(q => headers.map(h => `"${String(q[h]||'').replace(/"/g, '""')}"`).join(';'))].join('\n');
+      const headers = [
+        "id",
+        "question_de", "option_de_1", "option_de_2", "option_de_3", "option_de_4",
+        "question_en", "option_en_1", "option_en_2", "option_en_3", "option_en_4",
+        "question_es", "option_es_1", "option_es_2", "option_es_3", "option_es_4",
+        "correct_index", "difficulty"
+      ];
+    const csvBody = [headers.join(';'), ...questions.map(q => headers.map(h => `"${String(q[h]||'').replace(/"/g, '""')}"`).join(';'))].join('\n');
+    const csvContent = `\uFEFF${csvBody}`;
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -457,7 +464,11 @@ const AdminView = ({ onBack }) => {
           
           // Manuell aus der Liste entfernen (sofort)
           setGames(prevGames => prevGames.filter(g => g.id !== deleteConfirm.id));
-          
+                  const buffer = ev.target.result;
+                  const utf8Text = new TextDecoder('utf-8').decode(buffer);
+                  const text = utf8Text.includes('\uFFFD')
+                    ? new TextDecoder('windows-1252').decode(buffer)
+                    : utf8Text;
           // Dann auch neu laden für Sicherheit
           const { data: freshGames } = await fetchAllDuels(200);
           if (freshGames) {
@@ -543,7 +554,7 @@ const AdminView = ({ onBack }) => {
   };
 
   const handleRejectSubmission = async () => {
-    if (!activeSubmission) return;
+              reader.readAsArrayBuffer(file);
     await updateSubmissionStatus(activeSubmission.id, 'rejected');
     await deleteSubmission(activeSubmission.id);
     setSubmissions(prev => prev.filter(s => s.id !== activeSubmission.id));

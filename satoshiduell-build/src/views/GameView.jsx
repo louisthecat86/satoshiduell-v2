@@ -35,6 +35,19 @@ const GameView = ({ gameData, onGameEnd }) => {
       return;
     }
 
+    if (gameData.mode === 'tournament') {
+      const scores = gameData.participant_scores || {};
+      const times = gameData.participant_times || {};
+      const key = userName?.toLowerCase();
+      const myScoreInDB = scores[key] ?? scores[userName];
+      if (myScoreInDB !== null && myScoreInDB !== undefined) {
+        setAlreadyPlayed(true);
+        const myTime = times[key] ?? times[userName] ?? 0;
+        onGameEnd({ score: myScoreInDB, totalTime: myTime });
+      }
+      return;
+    }
+
     const isCreator = userName === gameData.creator;
     const myScoreInDB = isCreator ? gameData.creator_score : gameData.challenger_score;
 

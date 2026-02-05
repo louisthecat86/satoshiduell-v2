@@ -5,7 +5,7 @@ import { getCryptoPunkAvatar } from '../utils/avatar';
 import { Trophy, Frown, Loader2, Home, Clock, Target, CheckCircle2, RefreshCw, RefreshCcw, Wallet, Copy, Hourglass, UserPlus } from 'lucide-react'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
-import { getGameStatus, markGameAsClaimed, fetchProfiles } from '../services/supabase';
+import { getGameStatus, markGameAsClaimed, fetchProfiles, fetchTournamentById } from '../services/supabase';
 import { createWithdrawLink, getWithdrawLinkStatus } from '../services/lnbits';
 import confetti from 'canvas-confetti';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -32,6 +32,7 @@ const ResultView = ({ gameData, onHome }) => {
 
   // --- GAME MODE & PLAYER DATA ---
   const isArena = finalGameData.mode === 'arena';
+  const isTournament = finalGameData.mode === 'tournament';
   const isCreator = normalize(userName) === normalize(finalGameData.creator);
   const hasChallenger = !!finalGameData.challenger;
 
@@ -65,6 +66,15 @@ const ResultView = ({ gameData, onHome }) => {
 
   useEffect(() => {
       const determineStatus = () => {
+          if (isTournament) {
+            const key = normalize(userName);
+            const scores = finalGameData.participant_scores || {};
+            const played = scores[key] !== undefined && scores[key] !== null;
+            if (!played) return 'waiting_play';
+            if (finalGameData.status !== 'finished') return 'waiting_result';
+            if (finalGameData.winner && normalize(finalGameData.winner) === key) return 'win';
+            return 'lose';
+          }
           // A. Refund
             if (finalGameData.status === 'refunded' || finalGameData.withdraw_link) {
               if (finalGameData.withdraw_link) setWithdrawData({ lnurl: finalGameData.withdraw_link, id: finalGameData.withdraw_id });
@@ -146,6 +156,7 @@ const ResultView = ({ gameData, onHome }) => {
 
   // --- 4. LIVE UPDATE ---
   useEffect(() => {
+    if (isTournament) return;
     if (['win', 'lose', 'draw', 'refund'].includes(viewStatus)) return;
 
     const interval = setInterval(async () => {
@@ -166,6 +177,19 @@ const ResultView = ({ gameData, onHome }) => {
 
     return () => clearInterval(interval);
   }, [viewStatus, gameData.id, finalGameData]);
+
+  useEffect(() => {
+    if (!isTournament) return;
+
+    const interval = setInterval(async () => {
+      const { data } = await fetchTournamentById(finalGameData.id);
+      if (data) {
+        setFinalGameData({ ...data, mode: 'tournament' });
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isTournament, finalGameData.id]);
 
 
   // --- 5. AVATAR LOADING ---
@@ -201,6 +225,86 @@ const ResultView = ({ gameData, onHome }) => {
        }
      }
   }, [finalGameData.participants, finalGameData.challenger]);
+
+  if (isTournament) {
+    const scores = finalGameData.participant_scores || {};
+    const times = finalGameData.participant_times || {};
+    const myKey = normalize(userName);
+    const myScore = scores[myKey];
+    const myTime = times[myKey];
+    const isCreatorView = normalize(userName) === normalize(finalGameData.creator);
+    const winnerToken = finalGameData.winner_token;
+    const isWinner = Boolean(finalGameData.winner)
+      && normalize(finalGameData.winner) === normalize(userName);
+    const tournamentTitle = viewStatus === 'win'
+      ? t('tournament_result_win')
+      : viewStatus === 'lose'
+        ? t('tournament_result_lose')
+        : viewStatus === 'waiting_result'
+          ? t('tournament_result_scoring')
+          : t('tournament_result_waiting');
+
+    return (
+      <Background>
+        <div className="flex flex-col h-full w-full max-w-md mx-auto p-6 text-center">
+          <div className="mb-6">
+            <h2 className="text-2xl font-black uppercase text-white">
+              {tournamentTitle}
+            </h2>
+            <p className="text-neutral-400 text-sm mt-2">{finalGameData.name}</p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-6">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-[10px] text-neutral-400 font-bold uppercase">{t('tournament_score_label')}</span>
+                <p className="text-white font-black">{myScore ?? '-'}</p>
+              </div>
+              <div>
+                <span className="text-[10px] text-neutral-400 font-bold uppercase">{t('tournament_time_label')}</span>
+                <p className="text-white font-black">{myTime ? `${(myTime / 1000).toFixed(1)}s` : '-'}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-[10px] text-neutral-400 font-bold uppercase">{t('tournament_winner_label')}</span>
+                <p className="text-white font-black">{finalGameData.winner || '-'}</p>
+              </div>
+            </div>
+          </div>
+
+          {isWinner && winnerToken && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-4 mb-6">
+              <p className="text-xs text-neutral-300 mb-2">{t('tournament_payout_token_hint')}</p>
+              <div className="font-mono text-lg text-green-300">{winnerToken}</div>
+              <p className="text-[10px] text-neutral-400 mt-2">{t('tournament_payout_token_persist_hint')}</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(winnerToken);
+                  alert(t('nostr_copied') || 'Kopiert!');
+                }}
+                className="mt-3 w-full px-4 py-2 rounded-xl bg-white/10 text-white font-bold hover:bg-white/20 transition-all"
+              >
+                {t('btn_copy_withdraw')}
+              </button>
+            </div>
+          )}
+
+          {isCreatorView && winnerToken && (
+            <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mb-6">
+              <p className="text-xs text-neutral-300 mb-2">{t('tournament_creator_token_hint')}</p>
+              <div className="font-mono text-lg text-purple-300">{winnerToken}</div>
+            </div>
+          )}
+
+          <Button
+            onClick={onHome}
+            className="w-full bg-white/10 text-white hover:bg-white/20"
+          >
+            {t('back_home')}
+          </Button>
+        </div>
+      </Background>
+    );
+  }
 
 
   // --- 6. GEWINN LOGIK ---

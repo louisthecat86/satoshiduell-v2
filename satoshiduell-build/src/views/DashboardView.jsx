@@ -7,7 +7,7 @@ import {
   Plus, Trophy, Users, Swords, PlayCircle, History, 
   Medal, Heart, LogOut, Settings 
 } from 'lucide-react';
-import { supabase, fetchUserProfile, getOpenDuelCount, fetchUserGames, recalculateUserStats } from '../services/supabase';
+import { supabase, fetchUserProfile, getOpenDuelCount, fetchUserGames, recalculateUserStats, fetchWinningTournamentsForUser, fetchTournaments } from '../services/supabase';
 
 const DashboardView = ({ 
   onCreateDuel, 
@@ -27,12 +27,24 @@ const DashboardView = ({
   const { t } = useTranslation();
   const userName = user?.username || user?.name || '';
   const baseUrl = import.meta.env.BASE_URL || '/';
+  const carbonStyle = {
+    backgroundImage: [
+      'linear-gradient(120deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 35%, rgba(0,0,0,0) 60%)',
+      'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 60%)',
+      'repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 2px, rgba(0,0,0,0.05) 2px 4px)',
+      'repeating-linear-gradient(-45deg, rgba(255,255,255,0.03) 0 2px, rgba(0,0,0,0.03) 2px 4px)'
+    ].join(', ')
+  };
   
   // State für Dashboard-Daten
   const [lobbyCount, setLobbyCount] = useState(0);     
   const [actionCount, setActionCount] = useState(0);   
   const [incomingChallenges, setIncomingChallenges] = useState([]); 
   const [showNewGameMenu, setShowNewGameMenu] = useState(false);
+  const [tournamentWinCount, setTournamentWinCount] = useState(0);
+  const [hasOpenTournaments, setHasOpenTournaments] = useState(false);
+  const [latestTournamentWinAt, setLatestTournamentWinAt] = useState(null);
+  const seenWinsKey = userName ? `sd_tournament_wins_seen_${userName}` : null;
   
   // NEU: Lokaler State für das Profil (genau wie im Leaderboard)
   const [userProfile, setUserProfile] = useState(null);
@@ -58,6 +70,7 @@ const DashboardView = ({
         recalculateUserStats(userName);
     }
   }, [userName]);
+
 
   // 3. LOBBY COUNT
   useEffect(() => {
@@ -116,6 +129,48 @@ const DashboardView = ({
     const interval = setInterval(fetchChallenges, 5000);
     return () => clearInterval(interval);
   }, [userName]);
+
+  // 6. TOURNAMENT WINS
+  useEffect(() => {
+    const fetchTournamentWins = async () => {
+      if (!userName) return;
+      const { data } = await fetchWinningTournamentsForUser(userName);
+      const rows = data || [];
+      const latest = rows[0]?.winner_token_created_at || null;
+      setLatestTournamentWinAt(latest);
+      const seenAtRaw = seenWinsKey ? localStorage.getItem(seenWinsKey) : null;
+      const seenAt = seenAtRaw ? new Date(seenAtRaw) : null;
+      const unseenCount = rows.filter((row) => {
+        if (!row?.winner_token_created_at) return false;
+        if (!seenAt) return true;
+        return new Date(row.winner_token_created_at) > seenAt;
+      }).length;
+      setTournamentWinCount(unseenCount);
+    };
+    fetchTournamentWins();
+    const interval = setInterval(fetchTournamentWins, 5000);
+    return () => clearInterval(interval);
+  }, [userName]);
+
+  // 7. OPEN TOURNAMENTS INDICATOR
+  useEffect(() => {
+    const fetchOpenTournaments = async () => {
+      const { data } = await fetchTournaments();
+      const hasOpen = (data || []).some(tournament => ['registration', 'active'].includes(tournament.status));
+      setHasOpenTournaments(hasOpen);
+    };
+    fetchOpenTournaments();
+    const interval = setInterval(fetchOpenTournaments, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleOpenTournaments = () => {
+    if (seenWinsKey && latestTournamentWinAt) {
+      localStorage.setItem(seenWinsKey, latestTournamentWinAt);
+      setTournamentWinCount(0);
+    }
+    onOpenTournaments();
+  };
 
   // UI Helper Component
   const DashboardCard = ({ title, icon: Icon, colorClass, onClick, disabled, badgeCount, badgeColor = "bg-orange-500" }) => (
@@ -191,6 +246,7 @@ const DashboardView = ({
           </div>
         </div>
 
+
         {/* GRID */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           
@@ -204,18 +260,31 @@ const DashboardView = ({
           </button>
 
           <button 
-            onClick={onOpenTournaments}
-            className="col-span-1 bg-gradient-to-br from-purple-500 to-pink-600 hover:from-purple-400 hover:to-pink-500 text-white rounded-2xl p-4 flex flex-col items-center justify-center shadow-lg shadow-purple-900/20 active:scale-95 transition-all h-32 relative group overflow-hidden"
+            onClick={handleOpenTournaments}
+            style={carbonStyle}
+            className={`col-span-1 text-white rounded-2xl p-4 flex flex-col items-center justify-center border border-white/10 shadow-lg active:scale-95 transition-all h-32 relative group ${
+              hasOpenTournaments ? 'shadow-[0_0_55px_rgba(255,255,255,0.35)] border-white/25 animate-pulse' : 'shadow-black/40'
+            }`}
           >
-            <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-            <Trophy size={32} className="mb-2 drop-shadow-md" />
+            {tournamentWinCount > 0 && (
+              <span className="absolute -top-2 -right-2 w-7 h-7 bg-green-500 text-white font-bold text-xs flex items-center justify-center rounded-full border-2 border-[#111] shadow-lg z-10">
+                {tournamentWinCount}
+              </span>
+            )}
+            <div className="absolute inset-0 rounded-2xl overflow-hidden">
+              {hasOpenTournaments && (
+                <div className="absolute inset-0 bg-white/10 opacity-80" />
+              )}
+              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            </div>
+            <Trophy size={32} className="mb-2 drop-shadow-[0_0_18px_rgba(255,255,255,0.25)]" />
             <span className="text-xs font-black uppercase tracking-widest drop-shadow-sm">{t('dashboard_new_tournament')}</span>
           </button>
 
           <DashboardCard title={t('tile_lobby')} icon={Users} colorClass="text-orange-500" onClick={onPlay} badgeCount={lobbyCount} />
           
           <DashboardCard title={t('tile_challenges')} icon={Swords} colorClass="text-purple-500" onClick={onOpenChallenges} badgeCount={incomingChallenges.length} badgeColor="bg-purple-500" />
-          
+
           <DashboardCard title={t('tile_active_games')} icon={PlayCircle} colorClass="text-green-500" onClick={onOpenActiveGames} badgeCount={actionCount} badgeColor="bg-green-500" />
           <DashboardCard title={t('tile_history')} icon={History} colorClass="text-blue-500" onClick={onOpenHistory} />
         </div>
