@@ -5,7 +5,7 @@ import { getCryptoPunkAvatar } from '../utils/avatar';
 import { Trophy, Frown, Loader2, Home, Clock, Target, CheckCircle2, RefreshCw, RefreshCcw, Wallet, Copy, Hourglass, UserPlus } from 'lucide-react'; 
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
-import { getGameStatus, markGameAsClaimed, fetchProfiles, fetchTournamentById } from '../services/supabase';
+import { getGameStatus, markGameAsClaimed, markRefundAsClaimed, markArenaRefundClaimed, deleteDuel, fetchProfiles, fetchTournamentById } from '../services/supabase';
 import { createWithdrawLink, getWithdrawLinkStatus } from '../services/lnbits';
 import confetti from 'canvas-confetti';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -325,6 +325,15 @@ const ResultView = ({ gameData, onHome }) => {
       }
   };
 
+  const maybeDeleteArenaAfterRefunds = async (gameSnapshot) => {
+    if (!gameSnapshot || gameSnapshot.mode !== 'arena') return;
+    const participants = Array.isArray(gameSnapshot.participants) ? gameSnapshot.participants : [];
+    if (participants.length === 0) return;
+    const refundClaimed = gameSnapshot.refund_claimed || {};
+    const allClaimed = participants.every(p => Boolean(refundClaimed[normalize(p)]));
+    if (allClaimed) await deleteDuel(gameSnapshot.id);
+  };
+
   const handleClaimSuccess = async () => {
       if (isClaimed) return;
       setIsClaimed(true);
@@ -333,6 +342,21 @@ const ResultView = ({ gameData, onHome }) => {
       const result = await markGameAsClaimed(finalGameData.id, payoutAmount, donationAmount);
       console.log('markGameAsClaimed completed:', result);
       setTimeout(() => onHome(), 2500);
+  };
+
+  const handleRefundClaimSuccess = async () => {
+    if (isClaimed) return;
+    setIsClaimed(true);
+    if (finalGameData.mode === 'arena') {
+      const { data: updatedArena } = await markArenaRefundClaimed(finalGameData.id, userName);
+      if (updatedArena?.mode === 'arena') {
+        await maybeDeleteArenaAfterRefunds(updatedArena);
+      }
+    } else {
+      await markRefundAsClaimed(finalGameData.id);
+    }
+
+    setTimeout(() => onHome(), 2500);
   };
 
   const checkWithdrawStatus = async () => {
@@ -344,7 +368,11 @@ const ResultView = ({ gameData, onHome }) => {
     setIsChecking(false);
     if (claimed) {
       console.log('✅ Withdraw was claimed! Marking game as claimed...');
-      await handleClaimSuccess();
+      if (viewStatus === 'refund') {
+        await handleRefundClaimSuccess();
+      } else {
+        await handleClaimSuccess();
+      }
     }
   };
   
@@ -358,7 +386,11 @@ const ResultView = ({ gameData, onHome }) => {
           if (claimed) { 
             clearInterval(interval); 
             console.log('✅ Auto-detected claim! Marking game...');
-            await handleClaimSuccess(); 
+            if (viewStatus === 'refund') {
+              await handleRefundClaimSuccess();
+            } else {
+              await handleClaimSuccess();
+            }
           }
       }, 3000); 
     }

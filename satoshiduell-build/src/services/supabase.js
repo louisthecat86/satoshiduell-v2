@@ -263,10 +263,29 @@ export const getOpenDuelCount = async (myPlayerName) => {
     .select('*', { count: 'exact', head: true }) 
     .eq('status', 'open')
     .neq('creator', cleanMe)
-    .is('target_player', null);
+    .is('target_player', null)
+    .neq('mode', 'arena');
 
   if (error) return 0;
-  return count || 0;
+
+  const { data: arenaData, error: arenaError } = await supabase
+    .from('duels')
+    .select('*')
+    .eq('status', 'open')
+    .eq('mode', 'arena');
+
+  if (arenaError) return count || 0;
+
+  const arenaCount = (arenaData || []).filter(game => {
+    const participants = Array.isArray(game.participants) ? game.participants : [];
+    const maxPlayers = game.max_players || 2;
+    const alreadyJoined = participants.some(p => toLower(p) === cleanMe);
+    const refundClaimed = game.refund_claimed || {};
+    const alreadyRefunded = Boolean(refundClaimed[cleanMe]);
+    return participants.length < maxPlayers && !alreadyJoined && !alreadyRefunded;
+  }).length;
+
+  return (count || 0) + arenaCount;
 };
 
 // D. Duell beitreten
@@ -278,7 +297,8 @@ export const joinDuel = async (duelId, challengerName) => {
     .from('duels')
     .update({ 
       challenger: cleanChallenger,
-      status: 'active' 
+      status: 'active',
+      challenger_paid_at: new Date().toISOString()
     })
     .eq('id', duelId)
     .select()
@@ -302,16 +322,23 @@ export const joinArena = async (duelId, playerName) => {
   const participants = Array.isArray(game.participants) ? game.participants : [];
   if (participants.includes(cleanPlayer)) return { data: game, error: null };
 
+  const refundClaimed = game.refund_claimed || {};
+  if (refundClaimed[cleanPlayer]) {
+    return { data: null, error: { message: 'Refund bereits gezogen' } };
+  }
+
   if (game.max_players && participants.length >= game.max_players) {
     return { data: null, error: { message: 'Arena voll' } };
   }
 
   const updatedParticipants = [...participants, cleanPlayer];
   const nextStatus = game.max_players && updatedParticipants.length >= game.max_players ? 'active' : game.status;
+  const paidAtMap = { ...(game.participant_paid_at || {}) };
+  paidAtMap[cleanPlayer] = new Date().toISOString();
 
   const { data, error } = await supabase
     .from('duels')
-    .update({ participants: updatedParticipants, status: nextStatus })
+    .update({ participants: updatedParticipants, status: nextStatus, participant_paid_at: paidAtMap })
     .eq('id', duelId)
     .select()
     .single();
@@ -324,6 +351,41 @@ export const activateDuel = async (duelId) => {
   const { data, error } = await supabase
     .from('duels')
     .update({ status: 'open' })
+    .eq('id', duelId)
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+export const recordCreatorPayment = async (duelId, creatorName, mode = 'duel') => {
+  const timestamp = new Date().toISOString();
+  if (mode === 'arena') {
+    const cleanCreator = toLower(creatorName);
+    const { data: game, error: loadError } = await supabase
+      .from('duels')
+      .select('participant_paid_at')
+      .eq('id', duelId)
+      .single();
+
+    if (loadError || !game) return { data: null, error: loadError };
+
+    const paidAtMap = { ...(game.participant_paid_at || {}) };
+    paidAtMap[cleanCreator] = timestamp;
+
+    const { data, error } = await supabase
+      .from('duels')
+      .update({ participant_paid_at: paidAtMap })
+      .eq('id', duelId)
+      .select()
+      .single();
+
+    return { data, error };
+  }
+
+  const { data, error } = await supabase
+    .from('duels')
+    .update({ creator_paid_at: timestamp })
     .eq('id', duelId)
     .select()
     .single();
@@ -432,17 +494,34 @@ export const fetchUserGames = async (playerName) => {
   const cleanMe = toLower(playerName);
   const filter = `creator.eq.${cleanMe},challenger.eq.${cleanMe},target_player.eq.${cleanMe}`;
 
-  const { data, error } = await supabase
+  const { data: standard, error: standardError } = await supabase
     .from('duels')
     .select('*')
     .or(filter)
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (error || !data) return { data, error };
+  const { data: allArena, error: arenaError } = await supabase
+    .from('duels')
+    .select('*')
+    .eq('mode', 'arena')
+    .order('created_at', { ascending: false });
+
+  const arena = (allArena || []).filter(game => {
+    const participants = game.participants || [];
+    return participants.some(p => toLower(p) === cleanMe);
+  });
+
+  const merged = [...(standard || []), ...arena];
+  const unique = merged.filter((game, index, self) =>
+    index === self.findIndex(g => g.id === game.id)
+  );
+
+  if (standardError || arenaError) return { data: unique, error: standardError || arenaError };
+  if (!unique || unique.length === 0) return { data: unique, error: null };
 
   try {
-    const usernames = Array.from(new Set(data.flatMap(g => [g.creator, g.challenger]).filter(Boolean)));
+    const usernames = Array.from(new Set(unique.flatMap(g => [g.creator, g.challenger]).filter(Boolean)));
     if (usernames.length > 0) {
       const { data: profiles } = await supabase
         .from('profiles')
@@ -454,7 +533,7 @@ export const fetchUserGames = async (playerName) => {
           if(p.username) profileMap[p.username.toLowerCase()] = p.avatar || null;
       });
 
-      const enriched = data.map(g => ({
+      const enriched = unique.map(g => ({
         ...g,
         creatorAvatar: profileMap[(g.creator || "").toLowerCase()] || null,
         challengerAvatar: profileMap[(g.challenger || "").toLowerCase()] || null
@@ -466,7 +545,7 @@ export const fetchUserGames = async (playerName) => {
     console.error('Error enriching games:', e);
   }
 
-  return { data, error };
+  return { data: unique, error: null };
 };
 
 // I. Gewinn abholen
@@ -485,6 +564,40 @@ export const markGameAsClaimed = async (gameId, payoutAmount = null, donationAmo
     .single();
 
   console.log('markGameAsClaimed result:', { data, error });
+
+  return { data, error };
+};
+
+export const markRefundAsClaimed = async (gameId) => {
+  const { data, error } = await supabase
+    .from('duels')
+    .update({ is_claimed: true, claimed: true })
+    .eq('id', gameId)
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+export const markArenaRefundClaimed = async (gameId, userName) => {
+  const cleanUser = toLower(userName);
+  const { data: game, error: loadError } = await supabase
+    .from('duels')
+    .select('refund_claimed')
+    .eq('id', gameId)
+    .single();
+
+  if (loadError || !game) return { data: null, error: loadError };
+
+  const refundClaimed = { ...(game.refund_claimed || {}) };
+  refundClaimed[cleanUser] = true;
+
+  const { data, error } = await supabase
+    .from('duels')
+    .update({ refund_claimed: refundClaimed })
+    .eq('id', gameId)
+    .select()
+    .single();
 
   return { data, error };
 };

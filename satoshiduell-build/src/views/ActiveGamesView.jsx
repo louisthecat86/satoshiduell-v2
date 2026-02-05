@@ -58,6 +58,8 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
     if (g.is_claimed === true || g.claimed === true) return false; 
 
     if (g.mode === 'arena') {
+      const refundClaimed = g.refund_claimed || {};
+      if (refundClaimed[normalize(userName)]) return false;
       const winner = g.winner;
       return winner && normalize(winner) === normalize(userName);
     }
@@ -78,6 +80,8 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
   // 2. ACTION: Ich muss spielen (bin dran)
   const myTurnGames = games.filter(g => {
     if (g.mode === 'arena') {
+      const refundClaimed = g.refund_claimed || {};
+      if (refundClaimed[normalize(userName)]) return false;
       const participants = Array.isArray(g.participants) ? g.participants : [];
       if (!participants.map(normalize).includes(normalize(userName))) return false;
       const scores = g.participant_scores || {};
@@ -107,6 +111,8 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
   // 3. WAITING: Ich habe gespielt, warte auf Gegner
   const waitingGames = games.filter(g => {
     if (g.mode === 'arena') {
+      const refundClaimed = g.refund_claimed || {};
+      if (refundClaimed[normalize(userName)]) return false;
       const participants = Array.isArray(g.participants) ? g.participants : [];
       if (!participants.map(normalize).includes(normalize(userName))) return false;
       const scores = g.participant_scores || {};
@@ -268,10 +274,17 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                  {waitingGames.map(game => {
                     const isChallenge = game.target_player && game.target_player.length > 0;
                     const isArena = game.mode === 'arena';
+                    const userKey = normalize(userName);
+                    const refundLinks = game.refund_links || {};
+                    const hasRefundLink = Boolean(refundLinks[userKey]);
                     
                     const createdTime = new Date(game.created_at).getTime();
+                    const paidAt = isArena
+                      ? (game.participant_paid_at ? game.participant_paid_at[userKey] : null)
+                      : game.creator_paid_at;
+                    const paidTime = paidAt ? new Date(paidAt).getTime() : createdTime;
                     // Kann erstattet werden wenn Zeit abgelaufen ist
-                    const canRefund = (Date.now() - createdTime) > REFUND_TIMEOUT;
+                    const canRefund = (Date.now() - paidTime) > REFUND_TIMEOUT;
                     const isMyGame = game.mode === 'arena'
                       ? (Array.isArray(game.participants) && game.participants.map(normalize).includes(normalize(userName)))
                       : normalize(game.creator) === normalize(userName);
@@ -314,7 +327,14 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                         )}
 
                         {/* REFUND BUTTON - Nur sichtbar wenn Zeit abgelaufen & mein Spiel & noch offen */}
-                        {game.status === 'open' && isMyGame && canRefund ? (
+                            {game.status === 'open' && isMyGame && hasRefundLink ? (
+                              <button
+                              onClick={() => onSelectGame(game)}
+                              className="w-full bg-red-500/10 border border-red-500/50 text-red-500 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-all"
+                              >
+                                <RefreshCcw size={14} /> {t('payout_show_qr')}
+                              </button>
+                            ) : game.status === 'open' && isMyGame && canRefund ? (
                              <button 
                                 onClick={() => onRefund(game)}
                                 className="w-full bg-red-500/10 border border-red-500/50 text-red-500 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-all animate-pulse"

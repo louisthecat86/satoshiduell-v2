@@ -51,7 +51,9 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
         const participants = Array.isArray(g.participants) ? g.participants : [];
         const maxPlayers = g.max_players || 2;
         const alreadyJoined = participants.includes(userName.toLowerCase());
-        return participants.length < maxPlayers && !alreadyJoined;
+        const refundClaimed = g.refund_claimed || {};
+        const alreadyRefunded = Boolean(refundClaimed[userName.toLowerCase()]);
+        return participants.length < maxPlayers && !alreadyJoined && !alreadyRefunded;
       });
 
       setGames(arenaFiltered);

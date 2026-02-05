@@ -23,7 +23,7 @@ import TournamentsView from './views/TournamentsView';
 import CreateTournamentView from './views/CreateTournamentView';
 
 // --- SERVICES & UTILS ---
-import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult } from './services/supabase'; 
+import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult } from './services/supabase'; 
 import { useTranslation } from './hooks/useTranslation';
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink } from './services/lnbits'; 
@@ -293,6 +293,7 @@ export default function App() {
     } else {
       console.log("Creator hat bezahlt.");
       if (currentGame) {
+        await recordCreatorPayment(currentGame.id, userName, currentGame.mode);
         const { data } = await activateDuel(currentGame.id);
         const gamePayload = data || currentGame;
         const localizedQuestions = await ensureLocalizedQuestions(gamePayload.questions || []);
@@ -365,6 +366,8 @@ export default function App() {
       if (error) {
         alert("Fehler beim Speichern des Refund-Links.");
       }
+      setCurrentGame({ ...game, refund_links: nextLinks, refund_ids: nextIds });
+      navigate('result');
       return;
     }
 
@@ -374,6 +377,8 @@ export default function App() {
       .eq('id', game.id);
 
     if (error) alert("Fehler beim Speichern des Refund-Links.");
+    setCurrentGame({ ...game, status: 'refunded', withdraw_link: linkData.lnurl, withdraw_id: linkData.id });
+    navigate('result');
   };
   
   // Da ich oben 'supabase' nicht importieren kann ohne die Datei zu ändern, hier die Korrektur:
@@ -491,7 +496,11 @@ export default function App() {
                const isCreator = normalize(userName) === normalize(game.creator);
                const myScore = isCreator ? game.creator_score : game.challenger_score;
 
-               if (game.status === 'refunded') {
+                 const userKey = normalize(userName);
+                 const refundLinks = game.refund_links || {};
+                 const hasArenaRefund = game.mode === 'arena' && Boolean(refundLinks[userKey]);
+
+                 if (game.status === 'refunded' || hasArenaRefund) {
                    navigate('result');
                } else if (myScore === null && game.status !== 'finished') {
                    navigate('game');
