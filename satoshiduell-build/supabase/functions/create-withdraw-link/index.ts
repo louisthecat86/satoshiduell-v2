@@ -1,14 +1,23 @@
 const LNBITS_URL = Deno.env.get('LNBITS_URL') || '';
 const LNBITS_ADMIN_KEY = Deno.env.get('LNBITS_ADMIN_KEY') || '';
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+};
+
 const jsonResponse = (body: Record<string, unknown>, status = 200) => {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
 };
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   if (!LNBITS_URL || !LNBITS_ADMIN_KEY) {
     return jsonResponse({ ok: false, error: 'Missing LNBITS_URL or LNBITS_ADMIN_KEY' }, 500);
   }
