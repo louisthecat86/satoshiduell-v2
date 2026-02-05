@@ -1,196 +1,132 @@
-# 🎮 SatoshiDuell - Refactored Build
+# SatoshiDuell
 
-## ✅ Build-Ready React Projekt
+Real-time Bitcoin quiz duels with Lightning payments, arena matches, and tournaments.
 
-Dieses ist das **vollständige, lauffähige** Refactoring von SatoshiDuell mit allen Modulen und Dependencies.
+## Features
 
-## 📁 Projekt-Struktur
+- Duels, arena mode, and tournaments
+- Lightning invoices and payouts via LNbits
+- Supabase-backed profiles, games, questions, and storage
+- Question localization (de/en/es) by question IDs
+- Tournament deadlines, history, and winner tokens
+- Sharing and social flows (Nostr support)
+
+## Tech Stack
+
+- React + Vite
+- Tailwind CSS
+- Supabase (DB, Storage, Edge Functions)
+- LNbits (Invoices + Withdraw links)
+
+## Project Structure
 
 ```
 satoshiduell-build/
 ├── src/
 │   ├── components/
-│   │   ├── ui/              # Button, Card, Background
-│   │   ├── game/            # QuizQuestion
-│   │   └── payment/         # InvoiceDisplay, WithdrawDisplay
-│   ├── hooks/               # useAuth, useGame, usePayment, useDuels
-│   ├── services/            # supabase, lnbits, nostr
-│   ├── utils/               # formatters, validators, crypto, sound, etc.
-│   ├── constants/           # config
-│   ├── views/               # GameView (+ weitere TODO)
-│   ├── App.jsx              # Haupt-App (Demo-Version)
-│   ├── main.jsx             # React Entry Point
-│   ├── index.css            # Tailwind CSS
-│   └── translations.js      # i18n
-├── public/                  # Static Assets
+│   ├── hooks/
+│   ├── services/
+│   ├── utils/
+│   ├── views/
+│   ├── App.jsx
+│   └── main.jsx
+├── public/
+├── supabase/
+│   └── functions/
 ├── index.html
 ├── package.json
-├── vite.config.js
-├── tailwind.config.js
-└── .env.example
+└── vite.config.js
 ```
 
-## 🚀 Installation & Start
+## Requirements
 
-### 1. Dependencies installieren
+- Node.js 18+
+- Supabase project
+- LNbits instance
+
+## Environment Variables
+
+Create a `.env` file in `satoshiduell-build/`.
+
+**Client-side (Vite):**
+
+```
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_...
+VITE_LNBITS_URL=https://your-lnbits.tld
+VITE_LNBITS_INVOICE_KEY=...
+VITE_DONATION_LN_ADDRESS=you@lnaddress
+```
+
+**Supabase Edge Function secrets (server-side):**
+
+```
+LNBITS_URL=https://your-lnbits.tld
+LNBITS_ADMIN_KEY=...
+CRON_SECRET=... (only if using finalize-tournaments)
+```
+
+Notes:
+- Do **not** expose `LNBITS_ADMIN_KEY` in the client.
+- `LNBITS_URL` is required both client-side (invoices) and server-side (withdraw links).
+
+## Local Development
+
 ```bash
 npm install
-```
-
-### 2. Environment Variables
-```bash
-cp .env.example .env
-# Dann .env mit deinen Credentials bearbeiten
-```
-
-### 3. Development Server
-```bash
 npm run dev
 ```
 
-### 4. Production Build
+## Build
+
 ```bash
 npm run build
+npm run preview
 ```
 
-## 🔧 Konfiguration
+## Supabase Edge Functions
 
-### Supabase Setup
-1. Erstelle ein Supabase Projekt
-2. Kopiere URL und Anon Key
-3. Trage sie in `.env` ein:
-   ```
-   VITE_SUPABASE_URL=https://xxx.supabase.co
-   VITE_SUPABASE_KEY=eyJxxx...
-   ```
+This project ships with:
 
-### LNbits Setup
-1. Erstelle eine LNbits Wallet
-2. Generiere einen Invoice Key
-3. Trage ihn in `.env` ein:
-   ```
-   VITE_LNBITS_URL=https://legend.lnbits.com
-   VITE_INVOICE_KEY=xxx
-   ```
+- `finalize-tournaments`: cron-driven tournament finalization
+- `create-withdraw-link`: creates LNbits withdraw links using the admin key
 
-## 📦 Dependencies
-
-### Core
-- React 18.2
-- Vite 5.0
-- Tailwind CSS 3.4
-
-### Bitcoin/Lightning
-- @supabase/supabase-js
-- nostr-tools
-
-### UI
-- lucide-react (Icons)
-- qrcode.react
-- canvas-confetti
-
-## 🎯 Features
-
-### 🔊 Sounds
-
-Die App verwendet vier Sound-Dateien: `click.mp3`, `correct.mp3`, `wrong.mp3` und `tick.mp3`. Lege diese Dateien unverändert in den `public/` Ordner (z. B. `public/click.mp3`), damit sie unter `/click.mp3` erreichbar sind. Du kannst deine eigenen Dateien aus dem alten Projekt verwenden. Die Sounds lassen sich in den Einstellungen ein- bzw. ausschalten (Schalter "Sound").
-
-
-
-### ✅ Implementiert
-- Modulare Architektur
-- Custom Hooks (Auth, Game, Payment, Duels)
-- Service Layer (Supabase, LNbits, Nostr)
-- Utility Functions (Formatters, Validators, Crypto, etc.)
-- UI Components (Button, Card, Background, etc.)
-- Demo App
-
-### 📝 TODO (aus Original App.jsx extrahieren)
-- Alle View-Komponenten
-- Context für globalen State
-- Vollständige App.jsx mit Routing
-- Admin Panel
-- Tournament System
-
-## 🧪 Testing
-
-Die modulare Struktur ermöglicht einfaches Unit Testing:
+Deploy (requires Supabase CLI and access token):
 
 ```bash
-# Tests schreiben für:
-- utils/formatters.test.js
-- utils/validators.test.js
-- hooks/useAuth.test.js
-# etc.
+npx supabase functions deploy create-withdraw-link --project-ref <ref>
+npx supabase functions deploy finalize-tournaments --project-ref <ref>
 ```
 
-## 📖 Verwendung
+Function configuration:
 
-### Hooks verwenden
-```jsx
-import { useAuth } from './hooks';
+- `create-withdraw-link` uses `verify_jwt = false` (public call from client)
 
-function MyComponent() {
-  const { login, user } = useAuth();
-  
-  const handleLogin = async () => {
-    await login(username, pin);
-  };
-}
-```
+## Vercel Deployment
 
-### Services verwenden
-```jsx
-import { getActiveQuestions } from './services/supabase';
+No special manifest is required for Vercel.
 
-const questions = await getActiveQuestions();
-```
+Set the Vite env vars in Vercel and use the default build settings:
 
-### Utils verwenden
-```jsx
-import { formatSats, validatePin } from './utils';
+- Build command: `npm run build`
+- Output directory: `dist`
 
-const formatted = formatSats(1000000); // "1.000.000"
-const isValid = validatePin("1234").valid; // true
-```
+If you want, you can add a `vercel.json` to lock these settings, but it is optional.
 
-## 🎨 Demo Features
+## Sounds
 
-Die aktuelle Demo zeigt:
-- ✅ Formatters in Aktion
-- ✅ Validators in Aktion
-- ✅ Sound System
-- ✅ Modulare Struktur
-- ✅ Tailwind Styling
+Place these files in `public/`:
 
-## 🔄 Migration vom Original
+- `click.mp3`
+- `correct.mp3`
+- `wrong.mp3`
+- `tick.mp3`
 
-Um die vollständige App zu haben:
-1. Views aus Original App.jsx extrahieren
-2. Context für Auth/Settings hinzufügen
-3. Router implementieren
-4. Admin Components integrieren
+## Troubleshooting
 
-Siehe `REFACTORING_GUIDE.md` und `MIGRATION_CHECKLIST.md` für Details.
+- QR code not loading: check Edge Function logs and secrets.
+- 401 on Edge Function: ensure JWT verification is disabled and function is deployed.
 
-## 📝 Nächste Schritte
+## License
 
-1. **Views erstellen**: Alle Screens aus App.jsx extrahieren
-2. **Testing**: Unit Tests schreiben
-3. **TypeScript**: Optional für Type Safety
-4. **Performance**: Lazy Loading, Code Splitting
-
-## 🤝 Contributing
-
-1. Fork das Projekt
-2. Feature Branch erstellen
-3. Changes committen
-4. Pull Request öffnen
-
-## 📄 Lizenz
-
-MIT License
-
----
-
-**Built with 🧡 and ⚡**
+MIT
