@@ -82,48 +82,48 @@ const HistoryView = ({ onBack, onSelectGame }) => {
   });
 
   const getGameDetails = (game) => {
-    const isCreator = game.creator === userName;
-      const opponentName = isCreator ? (game.challenger || "Unbekannt") : game.creator;
+        const isCreator = game.creator === userName;
+        const opponentName = isCreator ? (game.challenger || t('history_opponent_unknown')) : game.creator;
       const myScore = isCreator ? game.creator_score : game.challenger_score;
       const opScore = isCreator ? game.challenger_score : game.creator_score;
       const myTime = isCreator ? game.creator_time : game.challenger_time;
       const opTime = isCreator ? game.challenger_time : game.creator_time;
 
             if (game.mode === 'arena') {
-                    if (game.status === 'refunded') {
+                        if (game.status === 'refunded') {
                             return {
-                                    status: 'refund',
-                                    icon: <RefreshCcw size={20} className="text-red-400"/>,
-                                    title: 'ARENA STORNO',
-                                    colorClass: 'bg-red-900/10 border-red-500/30',
-                                    textClass: 'text-red-400',
-                                    scoreText: `${game.amount} Sats zurück`
+                                status: 'refund',
+                                icon: <RefreshCcw size={20} className="text-red-400"/>,
+                                title: t('history_arena_refund_title'),
+                                colorClass: 'bg-red-900/10 border-red-500/30',
+                                textClass: 'text-red-400',
+                                scoreText: t('history_refund_amount', { amount: game.amount })
                             };
-                    }
+                        }
                     const winner = game.winner;
                     const iWon = winner && winner === userName;
                     return iWon
-                        ? { status: 'win', icon: <Trophy size={20} className="text-yellow-400"/>, title: 'ARENA GEWONNEN', colorClass: 'bg-yellow-900/10 border-yellow-500/30', textClass: 'text-yellow-400', scoreText: t('arena_history_win') }
-                        : { status: 'lose', icon: <Frown size={20} className="text-neutral-600"/>, title: 'ARENA VERLOREN', colorClass: 'bg-neutral-900/50 border-neutral-800', textClass: 'text-neutral-600', scoreText: t('arena_history_lose') };
+                        ? { status: 'win', icon: <Trophy size={20} className="text-yellow-400"/>, title: t('history_arena_win_title'), colorClass: 'bg-yellow-900/10 border-yellow-500/30', textClass: 'text-yellow-400', scoreText: t('arena_history_win') }
+                        : { status: 'lose', icon: <Frown size={20} className="text-neutral-600"/>, title: t('history_arena_lose_title'), colorClass: 'bg-neutral-900/50 border-neutral-800', textClass: 'text-neutral-600', scoreText: t('arena_history_lose') };
             }
 
       if (game.status === 'refunded') {
           return {
               status: 'refund',
               icon: <RefreshCcw size={20} className="text-red-400"/>,
-              title: 'RÜCKERSTATTUNG',
+              title: t('history_refund_title'),
               colorClass: 'bg-red-900/10 border-red-500/30',
               textClass: 'text-red-400',
-              scoreText: `${game.amount} Sats zurück`
+              scoreText: t('history_refund_amount', { amount: game.amount })
           };
       }
 
       const iWon = myScore > opScore || (myScore === opScore && myTime < opTime);
       const isDraw = myScore === opScore && myTime === opTime;
 
-      if (iWon) return { status: 'win', icon: <Trophy size={20} className="text-yellow-400"/>, title: 'GEWONNEN', colorClass: 'bg-yellow-900/10 border-yellow-500/30', textClass: 'text-yellow-400', scoreText: `${myScore} : ${opScore}` };
-      if (isDraw) return { status: 'draw', icon: <MinusCircle size={20} className="text-neutral-400"/>, title: 'UNENTSCHIEDEN', colorClass: 'bg-neutral-800/50 border-neutral-600/30', textClass: 'text-neutral-400', scoreText: `${myScore} : ${opScore}` };
-      return { status: 'lose', icon: <Frown size={20} className="text-neutral-600"/>, title: 'VERLOREN', colorClass: 'bg-neutral-900/50 border-neutral-800', textClass: 'text-neutral-600', scoreText: `${myScore} : ${opScore}` };
+      if (iWon) return { status: 'win', icon: <Trophy size={20} className="text-yellow-400"/>, title: t('history_win_title'), colorClass: 'bg-yellow-900/10 border-yellow-500/30', textClass: 'text-yellow-400', scoreText: `${myScore} : ${opScore}` };
+      if (isDraw) return { status: 'draw', icon: <MinusCircle size={20} className="text-neutral-400"/>, title: t('history_draw_title'), colorClass: 'bg-neutral-800/50 border-neutral-600/30', textClass: 'text-neutral-400', scoreText: `${myScore} : ${opScore}` };
+      return { status: 'lose', icon: <Frown size={20} className="text-neutral-600"/>, title: t('history_lose_title'), colorClass: 'bg-neutral-900/50 border-neutral-800', textClass: 'text-neutral-600', scoreText: `${myScore} : ${opScore}` };
   };
 
   return (
@@ -135,8 +135,8 @@ const HistoryView = ({ onBack, onSelectGame }) => {
             <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
               <ArrowLeft className="text-white" size={20}/>
             </button>
-            <h2 className="text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
-               <History size={24} className="text-purple-500" /> Historie
+                <h2 className="text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    <History size={24} className="text-purple-500" /> {t('history_title')}
             </h2>
         </div>
 
@@ -145,14 +145,14 @@ const HistoryView = ({ onBack, onSelectGame }) => {
             <div className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border border-yellow-500/20 p-3 rounded-2xl flex flex-col items-center justify-center">
                 <div className="flex items-center gap-2 mb-1">
                     <Trophy size={16} className="text-yellow-500"/>
-                    <span className="text-xs font-bold text-yellow-500 uppercase tracking-widest">Siege</span>
+                    <span className="text-xs font-bold text-yellow-500 uppercase tracking-widest">{t('history_stats_wins')}</span>
                 </div>
                 <span className="text-2xl font-black text-white">{stats.wins}</span>
             </div>
             <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 border border-purple-500/20 p-3 rounded-2xl flex flex-col items-center justify-center">
                 <div className="flex items-center gap-2 mb-1">
                     <Zap size={16} className="text-purple-400"/>
-                    <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">Sats</span>
+                    <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">{t('history_stats_sats')}</span>
                 </div>
                 <span className="text-2xl font-black text-white">{stats.total_sats_won}</span>
             </div>
@@ -170,7 +170,13 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                             : 'bg-transparent text-neutral-500 border-neutral-700 hover:border-neutral-500'}
                     `}
                 >
-                    {f === 'all' ? 'Alle' : f === 'refund' ? 'Storno' : f === 'win' ? 'Siege' : 'Niederl.'}
+                                        {f === 'all'
+                                            ? t('history_filter_all')
+                                            : f === 'refund'
+                                                ? t('history_filter_refund')
+                                                : f === 'win'
+                                                    ? t('history_filter_win')
+                                                    : t('history_filter_lose')}
                 </button>
             ))}
         </div>
@@ -178,18 +184,18 @@ const HistoryView = ({ onBack, onSelectGame }) => {
         {/* LISTE */}
         <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4 space-y-3 scrollbar-hide">
            {loading ? (
-               <div className="text-center text-neutral-600 py-10 animate-pulse">Lade Historie...</div>
+               <div className="text-center text-neutral-600 py-10 animate-pulse">{t('history_loading')}</div>
            ) : filteredGames.length === 0 ? (
                <div className="text-center py-20 opacity-50">
                   <History size={48} className="mx-auto mb-4 text-neutral-700"/>
-                  <p className="text-neutral-500 text-sm font-bold uppercase">Keine Einträge gefunden</p>
+                  <p className="text-neutral-500 text-sm font-bold uppercase">{t('history_empty_label')}</p>
                </div>
            ) : (
                filteredGames.map(game => {
                    const details = getGameDetails(game);
                    const date = new Date(game.created_at).toLocaleDateString();
                    const isCreator = game.creator === userName;
-                   const opponent = game.mode === 'arena' ? t('arena_history_opponent') : (isCreator ? (game.challenger || "Niemand") : game.creator);
+                   const opponent = game.mode === 'arena' ? t('arena_history_opponent') : (isCreator ? (game.challenger || t('history_opponent_unknown')) : game.creator);
                    // Avatar des Gegners (falls vorhanden)
                    const opponentAvatar = isCreator ? (game.challengerAvatar || null) : (game.creatorAvatar || null);
 
@@ -211,7 +217,7 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                                        <div className="w-6 h-6 rounded-md overflow-hidden border border-white/5">
                                            <img src={opponentAvatar || getCryptoPunkAvatar(opponent)} alt={opponent} className="w-full h-full object-cover" />
                                        </div>
-                                       <span className="text-xs text-neutral-500 font-bold truncate max-w-[140px]">vs {opponent}</span>
+                                       <span className="text-xs text-neutral-500 font-bold truncate max-w-[140px]">{t('history_vs', { opponent })}</span>
                                    </div>
                                </div>
                            </div>
@@ -232,7 +238,7 @@ const HistoryView = ({ onBack, onSelectGame }) => {
         {/* FOOTER */}
         <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
             <Button onClick={onBack} variant="secondary" className="w-full py-4 shadow-2xl flex items-center justify-center gap-2">
-                Zurück zum Dashboard
+                {t('result_home_button')}
             </Button>
         </div>
 

@@ -105,7 +105,7 @@ const SettingsView = ({ onBack, onOpenAdmin }) => {
   };
 
   const handleSubmitQuestion = async () => {
-    if (!qText || opts.some(o => !o)) return alert('Bitte Frage und alle 4 Antworten ausfüllen.');
+    if (!qText || opts.some(o => !o)) return alert(t('submit_question_required'));
     setSubmittingQ(true);
     try {
       const { error } = await createSubmission({ 
@@ -116,11 +116,11 @@ const SettingsView = ({ onBack, onOpenAdmin }) => {
           correct: correctIdx 
       });
       if (error) throw error;
-      alert('Frage eingereicht! Danke für deinen Beitrag.');
+      alert(t('submit_question_success'));
       setShowSubmitModal(false);
       setQText(''); setOpts(['', '', '', '']); setCorrectIdx(0); setQuestionLang('de');
     } catch (e) {
-      console.error(e); alert('Fehler beim Abschicken');
+      console.error(e); alert(t('submit_question_error'));
     } finally { setSubmittingQ(false); }
   };
 

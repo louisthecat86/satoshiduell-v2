@@ -22,6 +22,7 @@ const GameView = ({ gameData, onGameEnd }) => {
 
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [alreadyPlayed, setAlreadyPlayed] = useState(false);
+  const [shuffledQuestions, setShuffledQuestions] = useState([]);
 
   // --- TÜRSTEHER: Habe ich schon gespielt? ---
   useEffect(() => {
@@ -83,14 +84,32 @@ const GameView = ({ gameData, onGameEnd }) => {
   }, []);
 
 
-  const question = gameData.questions[currentQuestionIndex];
-  const totalQuestions = gameData.questions.length;
+  useEffect(() => {
+    const raw = Array.isArray(gameData?.questions) ? gameData.questions : [];
+    const next = raw.map((q) => {
+      if (!q || !Array.isArray(q.a)) return q;
+      const indices = q.a.map((_, idx) => idx);
+      for (let i = indices.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      const answers = indices.map(idx => q.a[idx]);
+      const correctIndex = indices.indexOf(q.c);
+      return { ...q, a: answers, c: correctIndex };
+    });
+    setShuffledQuestions(next);
+  }, [gameData?.questions]);
+
+  const question = shuffledQuestions[currentQuestionIndex];
+  const totalQuestions = shuffledQuestions.length;
+  const hasValidQuestion = question && Array.isArray(question.a);
 
   useEffect(() => {
     setTimeLeft(15);
   }, [currentQuestionIndex]);
 
   const handleAnswerClick = (index, isTimeout = false) => {
+    if (!hasValidQuestion) return;
     if (selectedAnswer !== null || hasSubmitted) return; 
 
     const muted = localStorage.getItem('satoshi_sound') === 'false';
@@ -174,6 +193,21 @@ const GameView = ({ gameData, onGameEnd }) => {
     // stop on unmount or game end
     return () => tickRef.current && tickRef.current.stop();
   }, [currentQuestionIndex, selectedAnswer, hasSubmitted]);
+
+  if (!hasValidQuestion) {
+    return (
+      <Background>
+        <div className="flex flex-col items-center justify-center h-full text-center px-6">
+          <div className="text-lg font-bold text-red-300 mb-2">
+            {t('game_questions_error')}
+          </div>
+          <div className="text-xs text-neutral-400">
+            {t('game_questions_error_hint')}
+          </div>
+        </div>
+      </Background>
+    );
+  }
 
   return (
     <Background>

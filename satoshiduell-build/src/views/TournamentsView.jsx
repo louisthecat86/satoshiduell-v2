@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
-import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, KeyRound, Timer } from 'lucide-react';
+import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, KeyRound, Timer, Share2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
 import { addTournamentParticipant, createTournamentToken, deleteTournament, fetchTournaments, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
@@ -51,6 +51,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
   useEffect(() => {
     loadTournaments();
   }, []);
+
 
   useEffect(() => {
     if (!selectedTournament) return;
@@ -221,6 +222,13 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     return true;
   };
 
+  const canShareTournament = (tournament) => {
+    if (!tournament || !user) return false;
+    if (user.is_admin === true) return true;
+    if (tournament.creator?.toLowerCase() === user.username?.toLowerCase()) return true;
+    return false;
+  };
+
   const getResultsList = (tournament) => {
     const participants = Array.isArray(tournament?.participants) ? tournament.participants : [];
     const scores = tournament?.participant_scores || {};
@@ -256,6 +264,58 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
   const formatTournamentTime = (timeMs) => {
     if (timeMs === null || timeMs === undefined) return '-';
     return formatTime(Math.max(0, timeMs) / 1000);
+  };
+
+  const buildShareText = (tournament) => {
+    const url = 'https://www.satoshiduell.com';
+    const access = accessLabel(tournament);
+    const description = (tournament?.description || '').trim();
+    const prizePool = tournament?.total_prize_pool || 0;
+
+    let limitLabel = '-';
+    if (tournament?.play_until) {
+      limitLabel = t('tournament_share_limit_deadline', {
+        date: formatPlayUntil(tournament.play_until)
+      });
+    } else if (tournament?.max_players) {
+      limitLabel = t('tournament_share_limit_players', {
+        count: tournament.max_players
+      });
+    }
+
+    const lines = [
+      t('tournament_share_title', { name: tournament?.name || '-' }),
+      description ? t('tournament_share_line_desc', { description }) : null,
+      t('tournament_share_line_prize', { amount: prizePool }),
+      t('tournament_share_line_access', { access }),
+      t('tournament_share_line_limit', { limit: limitLabel }),
+      t('tournament_share_line_url', { url })
+    ].filter(Boolean);
+
+    return lines.join('\n');
+  };
+
+  const handleShareTournament = async (tournament) => {
+    if (!tournament) return;
+    const title = t('tournament_share_title', { name: tournament.name || '' });
+    const text = buildShareText(tournament);
+    const url = 'https://www.satoshiduell.com';
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, url });
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(`${title}\n${text}`.trim());
+        alert(t('tournament_share_copied'));
+        return;
+      }
+      alert(t('tournament_share_unavailable'));
+    } catch (err) {
+      console.error('Share error:', err);
+      alert(t('tournament_share_unavailable'));
+    }
   };
 
   const carbonStyle = {
@@ -541,6 +601,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                 className="w-full bg-purple-500 hover:bg-purple-600 text-black font-black py-3 flex items-center justify-center gap-2"
               >
                 <KeyRound size={18} /> {t('tournament_token_generate')}
+              </Button>
+            )}
+            {canShareTournament(selectedTournament) && (
+              <Button
+                onClick={() => handleShareTournament(selectedTournament)}
+                className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-3 flex items-center justify-center gap-2"
+              >
+                <Share2 size={18} /> {t('tournament_share_btn')}
               </Button>
             )}
             {selectedTournament.status === 'finished'

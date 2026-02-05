@@ -23,12 +23,14 @@ import TournamentsView from './views/TournamentsView';
 import CreateTournamentView from './views/CreateTournamentView';
 
 // --- SERVICES & UTILS ---
-import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, supabase, createTournament, fetchGameQuestions, uploadTournamentImage, updateTournament, submitTournamentResult } from './services/supabase'; 
+import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult } from './services/supabase'; 
+import { useTranslation } from './hooks/useTranslation';
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink } from './services/lnbits'; 
 
 export default function App() {
   const { user, logout, refreshUser, pendingNpub } = useAuth();
+  const { lang } = useTranslation();
   const userName = user?.username || user?.name || '';
   
   // --- STATE ---
@@ -102,6 +104,7 @@ export default function App() {
     openPendingDuel();
   }, [userName]);
 
+
   const navigate = (newView) => {
     setView(newView);
     window.history.pushState({ view: newView }, '', '');
@@ -148,8 +151,8 @@ export default function App() {
       return { ok: false, message: 'LOGIN_REQUIRED' };
     }
 
-    const questions = await fetchGameQuestions(tournamentForm.questionCount || 1, 'de');
-    if (!questions || questions.length === 0) {
+    const { data: questionIds, error: questionError } = await fetchQuestionIds(tournamentForm.questionCount || 1);
+    if (questionError || !questionIds || questionIds.length === 0) {
       return { ok: false, message: 'NO_QUESTIONS' };
     }
 
@@ -163,7 +166,7 @@ export default function App() {
       question_count: tournamentForm.questionCount,
       play_until: tournamentForm.playUntil ? new Date(tournamentForm.playUntil).toISOString() : null,
       contact_info: tournamentForm.contactInfo || null,
-      questions: questions,
+      questions: questionIds,
     };
 
     const { data, error } = await createTournament(tournamentPayload);
@@ -187,18 +190,46 @@ export default function App() {
     return { ok: true };
   };
 
-  const handleStartTournament = (tournament) => {
+  const handleStartTournament = async (tournament) => {
     if (!tournament) return;
-    let questions = tournament.questions || [];
-    if (typeof questions === 'string') {
+    const localizedQuestions = await ensureLocalizedQuestions(tournament.questions || []);
+    setCurrentTournamentGame({ ...tournament, questions: localizedQuestions, mode: 'tournament' });
+    navigate('tournament-game');
+  };
+
+  const ensureLocalizedQuestions = async (rawQuestions) => {
+    let parsed = rawQuestions || [];
+    if (typeof parsed === 'string') {
       try {
-        questions = JSON.parse(questions);
+        parsed = JSON.parse(parsed);
       } catch (e) {
-        questions = [];
+        parsed = [];
       }
     }
-    setCurrentTournamentGame({ ...tournament, questions, mode: 'tournament' });
-    navigate('tournament-game');
+
+    const isLocalizedQuestion = (item) => item
+      && typeof item === 'object'
+      && Array.isArray(item.a)
+      && typeof item.q === 'string';
+
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isLocalizedQuestion)) {
+      return parsed;
+    }
+
+    const ids = (parsed || [])
+      .map(item => (typeof item === 'object' ? item?.id : item))
+      .filter(Boolean);
+
+    if (ids.length > 0) {
+      const effectiveLang = lang || 'de';
+      const { data: localized, error } = await fetchQuestionsByIds(ids, effectiveLang);
+      if (error) {
+        console.error('Question localization error:', error);
+      }
+      if (localized && localized.length > 0) return localized;
+    }
+
+    return (parsed || []).filter(isLocalizedQuestion);
   };
 
   const handleTournamentGameEnd = async (result) => {
@@ -251,7 +282,8 @@ export default function App() {
         ? await joinArena(currentGame.id, userName)
         : await joinDuel(currentGame.id, userName);
       if (data) {
-        setCurrentGame(data); 
+        const localizedQuestions = await ensureLocalizedQuestions(data.questions || []);
+        setCurrentGame({ ...data, questions: localizedQuestions }); 
         navigate('game');     
       } else {
         console.error("Join Error:", error);
@@ -261,7 +293,10 @@ export default function App() {
     } else {
       console.log("Creator hat bezahlt.");
       if (currentGame) {
-        await activateDuel(currentGame.id);
+        const { data } = await activateDuel(currentGame.id);
+        const gamePayload = data || currentGame;
+        const localizedQuestions = await ensureLocalizedQuestions(gamePayload.questions || []);
+        setCurrentGame({ ...gamePayload, questions: localizedQuestions });
         navigate('game');
       }
     }
@@ -446,13 +481,11 @@ export default function App() {
          <ActiveGamesView 
             onBack={() => navigate('dashboard')}
             onRefund={handleRefund} 
-            onSelectGame={(game) => {
-               let safeGame = { ...game };
-               if (typeof safeGame.questions === 'string') {
-                   try { safeGame.questions = JSON.parse(safeGame.questions); } 
-                   catch (e) { safeGame.questions = []; }
-               }
-               setCurrentGame(safeGame);
+            onSelectGame={async (game) => {
+              let safeGame = { ...game };
+              const localizedQuestions = await ensureLocalizedQuestions(safeGame.questions || []);
+              safeGame.questions = localizedQuestions;
+              setCurrentGame(safeGame);
                
                // Auch hier normalisieren für korrekte Weiterleitung
                const isCreator = normalize(userName) === normalize(game.creator);
@@ -473,8 +506,9 @@ export default function App() {
        {view === 'history' && (
          <HistoryView 
             onBack={() => navigate('dashboard')}
-            onSelectGame={(game) => {
-               setCurrentGame(game);
+            onSelectGame={async (game) => {
+              const localizedQuestions = await ensureLocalizedQuestions(game.questions || []);
+              setCurrentGame({ ...game, questions: localizedQuestions });
                setPreviousView('history');
                navigate('result'); 
             }}
@@ -521,7 +555,7 @@ export default function App() {
          <TournamentsView 
             onBack={() => navigate('dashboard')}
             onCreateTournament={() => navigate('create-tournament')}
-          onStartTournament={handleStartTournament}
+            onStartTournament={handleStartTournament}
          />
        )}
 

@@ -160,7 +160,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
            {claimableGames.length > 0 && (
              <div className="animate-in slide-in-from-top-5 duration-500">
                <h3 className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-3 pl-1 flex items-center gap-2">
-                 <Trophy size={12}/> Gewinne abholen! ({claimableGames.length})
+                 <Trophy size={12}/> {t('active_claim_title')} ({claimableGames.length})
                </h3>
                <div className="space-y-3">
                  {claimableGames.map(game => {
@@ -182,7 +182,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                         <div className="flex flex-col items-start">
                            <span className="text-black font-black uppercase text-lg flex items-center gap-2">
                              <Trophy size={20} className="text-black fill-black"/>
-                             GEWONNEN!
+                             {t('result_win_title')}
                            </span>
                            <span className="text-black/70 text-xs font-bold">
                              vs {opponent}
@@ -194,7 +194,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                            +{game.amount * 2} Sats
                          </span>
                          <span className="text-[10px] text-black/60 mt-1 uppercase tracking-wider font-bold group-hover:translate-x-1 transition-transform">
-                           Abholen {'->'}
+                           {t('active_claim_action')} {'->'}
                          </span>
                       </div>
                    </button>
@@ -207,7 +207,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
            {myTurnGames.length > 0 && (
              <div className="animate-in slide-in-from-left-5 duration-500">
                <h3 className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-3 pl-1">
-                 Deine Aktionen ({myTurnGames.length})
+                 {t('active_your_actions')} ({myTurnGames.length})
                </h3>
                <div className="space-y-3">
                  {myTurnGames.map(game => {
@@ -234,10 +234,12 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                           <div className="flex flex-col items-start">
                              <span className="text-white font-black uppercase text-lg flex items-center gap-2">
                                {isChallengeForMe ? <Swords size={20} className="text-white"/> : <PlayCircle size={20} className="fill-white text-orange-500"/>}
-                               {isChallengeForMe ? 'DU BIST HERAUSGEFORDERT!' : 'DU BIST DRAN!'}
+                               {isChallengeForMe ? t('active_challenged_title') : t('active_your_turn')}
                              </span>
                              <span className={`${isChallengeForMe ? 'text-purple-200' : 'text-orange-200'} text-xs font-medium`}>
-                               {isChallengeForMe ? `von ${game.creator}` : (isCreator ? 'Warte auf Gegner...' : `vs ${game.creator}`)} 
+                               {isChallengeForMe
+                                 ? t('active_challenged_by', { name: game.creator })
+                                 : (isCreator ? t('active_waiting_list') : t('active_vs', { opponent: game.creator }))} 
                              </span>
                           </div>
                         </div>
@@ -246,7 +248,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                              {game.amount} Sats
                            </span>
                            <span className="text-[10px] text-white/60 mt-1 uppercase tracking-wider group-hover:translate-x-1 transition-transform flex items-center gap-1">
-                             {isChallengeForMe ? 'Annehmen ->' : 'Quiz starten ->'}
+                              {isChallengeForMe ? t('active_accept_action') : t('active_start_quiz_action')}
                            </span>
                         </div>
                      </button>
@@ -260,7 +262,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
            {waitingGames.length > 0 && (
              <div className="animate-in slide-in-from-right-5 duration-500 delay-100">
                <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 pl-1 mt-2">
-                 Warten auf Gegner ({waitingGames.length})
+                 {t('active_waiting_list')} ({waitingGames.length})
                </h3>
                <div className="space-y-3">
                  {waitingGames.map(game => {
@@ -280,10 +282,12 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                             <div className="flex flex-col items-start">
                                <span className="text-neutral-400 font-bold uppercase text-sm flex items-center gap-2">
                                  <Clock size={16} className="text-neutral-500"/>
-                                 {isArena ? t('arena_waiting_full') : (isChallenge ? `Herausforderung gesendet` : `Warten...`)}
+                                 {isArena ? t('arena_waiting_full') : (isChallenge ? t('active_challenge_sent') : t('active_waiting'))}
                                </span>
                                <span className="text-neutral-600 text-xs mt-1">
-                                 {isArena ? t('arena_waiting_slots', { joined: (game.participants || []).length, total: game.max_players || 2 }) : (isChallenge ? `an ${game.target_player}` : 'Lobby')}
+                                 {isArena
+                                   ? t('arena_waiting_slots', { joined: (game.participants || []).length, total: game.max_players || 2 })
+                                   : (isChallenge ? t('active_challenge_to', { target: game.target_player }) : t('active_in_lobby'))}
                                </span>
                             </div>
                             <div className="flex flex-col items-end">
@@ -293,7 +297,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                                {/* Score Anzeige falls ich schon gespielt habe */}
                                {isMyGame && game.creator_score !== null && (
                                    <span className="text-[10px] text-green-500/50 mt-1 uppercase tracking-wider flex items-center gap-1">
-                                     <CheckCircle size={10}/> Dein Score: {game.creator_score}
+                                     <CheckCircle size={10}/> {t('active_your_score', { score: game.creator_score })}
                                    </span>
                                )}
                             </div>
@@ -315,15 +319,15 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                                 onClick={() => onRefund(game)}
                                 className="w-full bg-red-500/10 border border-red-500/50 text-red-500 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-all animate-pulse"
                              >
-                                <RefreshCcw size={14} /> Einsatz zurückfordern
+                                  <RefreshCcw size={14} /> {t('active_refund_request')}
                              </button>
                         ) : (
                              isMyGame && game.status === 'open' && (
-                                 <div className="w-full flex items-center gap-2 mt-1 opacity-30" title="Stornierung erst nach 24h möglich">
+                                   <div className="w-full flex items-center gap-2 mt-1 opacity-30" title={t('active_refund_lock_hint')}>
                                      <div className="h-1 bg-neutral-800 rounded-full flex-1 overflow-hidden">
                                           <div className="h-full bg-neutral-600 w-1/3 animate-pulse"></div>
                                      </div>
-                                     <span className="text-[8px] text-neutral-600">24h sperre</span>
+                                    <span className="text-[8px] text-neutral-600">{t('active_refund_lock_label')}</span>
                                  </div>
                              )
                         )}
@@ -337,13 +341,13 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
            {/* 3. REFUNDED & BEREIT ZUM ABHOLEN */}
            {refundedGames.length > 0 && (
                <div className="mt-8 animate-in slide-in-from-bottom-5">
-                   <h3 className="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 pl-1 flex items-center gap-2">
-                      <RefreshCcw size={12}/> Rückerstattungen offen ({refundedGames.length})
+                     <h3 className="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-3 pl-1 flex items-center gap-2">
+                      <RefreshCcw size={12}/> {t('active_refunds_open')} ({refundedGames.length})
                    </h3>
                    {refundedGames.map(game => (
                        <button key={game.id} onClick={() => onSelectGame(game)} className="w-full bg-red-900/10 border border-red-500/30 p-3 rounded-xl flex justify-between items-center mb-2 hover:bg-red-900/20 transition-colors">
                            <span className="text-red-500 text-xs font-bold uppercase flex items-center gap-2">
-                               <RefreshCcw size={12} className="animate-spin-slow"/> Rückerstattung #{game.id.slice(0,4)}
+                           <RefreshCcw size={12} className="animate-spin-slow"/> {t('active_refund_item', { id: game.id.slice(0, 4) })}
                            </span>
                            <span className="text-red-400 text-xs font-mono font-bold">{game.amount} sats {'->'}</span>
                        </button>
@@ -351,14 +355,14 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                </div>
            )}
 
-           {loading && <div className="text-center text-neutral-600 py-10 animate-pulse">Lade Spiele...</div>}
+                 {loading && <div className="text-center text-neutral-600 py-10 animate-pulse">{t('active_loading')}</div>}
            
            {!loading && games.length === 0 && (
               <div className="text-center py-20 opacity-50">
                  <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
                     <PlayCircle size={32} className="text-neutral-600"/>
                  </div>
-                 <p className="text-neutral-500 text-sm font-bold uppercase tracking-widest">Keine aktiven Spiele</p>
+                  <p className="text-neutral-500 text-sm font-bold uppercase tracking-widest">{t('active_no_games')}</p>
               </div>
            )}
 
@@ -367,7 +371,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
         {/* FOOTER */}
         <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
             <Button onClick={onBack} variant="secondary" className="w-full py-4 shadow-2xl flex items-center justify-center gap-2">
-                Zurück zum Dashboard
+              {t('result_home_button')}
             </Button>
         </div>
 

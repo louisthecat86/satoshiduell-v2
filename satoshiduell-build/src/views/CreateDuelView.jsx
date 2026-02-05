@@ -6,7 +6,7 @@ import { ArrowRight, X, Swords, Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
 // WICHTIG: Hier importieren wir die Logik
-import { createDuelEntry, fetchGameQuestions } from '../services/supabase';
+import { createDuelEntry, fetchQuestionIds } from '../services/supabase';
 
 const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
   const { t } = useTranslation();
@@ -35,9 +35,9 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
         console.log("🎲 Hole neue Fragen aus DB...");
         
         // 1. Fragen laden (sicher, ohne Rekursion)
-        const questions = await fetchGameQuestions(5, 'de');
+        const { data: questionIds, error: questionError } = await fetchQuestionIds(5);
 
-        if (!questions || questions.length === 0) {
+        if (questionError || !questionIds || questionIds.length === 0) {
             throw new Error("Fehler: Keine Fragen geladen.");
         }
 
@@ -51,7 +51,7 @@ const CreateDuelView = ({ onCancel, onConfirm, targetPlayer }) => {
             creatorName, 
             parseInt(amount), 
             targetPlayer || null, 
-            questions
+            questionIds
         );
 
         if (error) throw error;

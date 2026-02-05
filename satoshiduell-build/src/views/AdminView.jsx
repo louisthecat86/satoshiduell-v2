@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import Background from '../components/ui/Background';
 import { getCryptoPunkAvatar } from '../utils/avatar';
 import { 
@@ -303,30 +304,38 @@ const AdminView = ({ onBack }) => {
               console.log('Datei gelesen, parse CSV...');
               const text = ev.target.result;
               console.log('Text Länge:', text?.length);
-              const lines = text.split('\n').filter(l => l.trim().length > 0);
-              console.log('Anzahl Zeilen:', lines.length);
-              
-              if (lines.length < 2) {
+              const parseCsv = (input, delimiter) => Papa.parse(input, {
+                header: true,
+                delimiter,
+                skipEmptyLines: 'greedy'
+              });
+
+              let parsed = parseCsv(text, ';');
+              if (parsed.data?.length && parsed.meta?.fields?.length === 1) {
+                parsed = parseCsv(text, ',');
+              }
+
+              if (!parsed.data || parsed.data.length === 0) {
                 alert('❌ CSV ist leer oder hat nur Header');
                 setIsImporting(false);
                 return;
               }
-              
-              const headers = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/^[\uFEFF\u200B]/, ''));
-              console.log('Headers gefunden:', headers);
-              
-              const parsedRows = [];
-              for (let i = 1; i < lines.length; i++) {
-                  const values = lines[i].split(';'); 
-                  if (values.length < 2) continue;
-                  const rowObj = {};
-                  headers.forEach((h, idx) => {
-                      let val = values[idx] ? values[idx].trim() : '';
-                      if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-                      rowObj[h] = val === '' ? null : val;
-                  });
-                  
-                  // Nur die Felder behalten, die die Datenbank erwartet
+
+              const normalizeRow = (row) => {
+                const normalized = {};
+                Object.entries(row || {}).forEach(([key, value]) => {
+                  const cleanKey = String(key)
+                    .trim()
+                    .toLowerCase()
+                    .replace(/^[\uFEFF\u200B]/, '');
+                  normalized[cleanKey] = value === '' ? null : value;
+                });
+                return normalized;
+              };
+
+              const parsedRows = parsed.data
+                .map(normalizeRow)
+                .map(rowObj => {
                   const cleanQ = {
                     question_de: rowObj.question_de || null,
                     option_de_1: rowObj.option_de_1 || null,
@@ -343,14 +352,16 @@ const AdminView = ({ onBack }) => {
                     option_es_2: rowObj.option_es_2 || null,
                     option_es_3: rowObj.option_es_3 || null,
                     option_es_4: rowObj.option_es_4 || null,
-                    correct_index: rowObj.correct_index !== null ? parseInt(rowObj.correct_index) : 0,
+                    correct_index: rowObj.correct_index !== null && rowObj.correct_index !== undefined
+                      ? parseInt(rowObj.correct_index, 10)
+                      : 0,
                     difficulty: rowObj.difficulty || 'medium',
                     is_active: 1
                   };
-                  
-                  // Nur hinzufügen wenn mindestens eine Frage vorhanden ist
-                  if (cleanQ.question_de || cleanQ.question_en || cleanQ.question_es) parsedRows.push(cleanQ);
-              }
+
+                  return cleanQ;
+                })
+                .filter(cleanQ => cleanQ.question_de || cleanQ.question_en || cleanQ.question_es);
               
               console.log(`${parsedRows.length} Fragen geparst`);
               console.log('Erste Frage als Beispiel:', parsedRows[0]);
@@ -766,7 +777,7 @@ const AdminView = ({ onBack }) => {
                         filteredQuestions.map(q => (
                             <div key={q.id} onClick={() => { setEditorQuestion(q); setEditorOpen(true); }} className="bg-white/5 border border-white/5 p-3 rounded-xl mb-2 cursor-pointer hover:bg-white/10 transition-colors flex justify-between items-start">
                                 <div>
-                                    <h4 className="text-white font-bold text-sm line-clamp-1">{q.question_de || q.question_en || '---'}</h4>
+                                    <h4 className="text-white font-bold text-sm line-clamp-1">{q.question_de || q.question_en || q.question_es || '---'}</h4>
                                     <div className="flex gap-3 text-[10px] text-neutral-500 mt-1">
                                         <span className="font-mono">ID: {q.id?.slice(0,6)}</span>
                                         <span className="text-green-500">Lösung: {(q.correct_index||0)+1}</span>

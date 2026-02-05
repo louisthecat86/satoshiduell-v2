@@ -105,7 +105,7 @@ const LobbyView = ({ onJoinDuel, onCancel, showChallengesOnly = false }) => {
               <div className="bg-neutral-900 p-6 rounded-full mb-4">
                 <Swords size={48} className="opacity-20" />
               </div>
-              <p className="text-sm font-bold uppercase tracking-widest">{showChallengesOnly ? t('no_challenges') : 'Keine offenen Duelle'}</p>
+              <p className="text-sm font-bold uppercase tracking-widest">{showChallengesOnly ? t('no_challenges') : t('lobby_empty_open_duels')}</p>
             </div>
           )}
 

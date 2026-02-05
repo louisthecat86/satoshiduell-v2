@@ -26,10 +26,10 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
   };
 
   // Helper für korrekte Grammatik (Singular/Plural)
-  const getWinText = (wins) => {
-      if (wins === 1) return "1 Kampf gewonnen";
-      return `${wins} Kämpfe gewonnen`;
-  };
+    const getWinText = (wins) => {
+      if (wins === 1) return t('leaderboard_win_single', { wins });
+      return t('leaderboard_win_multi', { wins });
+    };
 
   // Daten laden (neu: auch neu laden wenn sich der User ändert)
   useEffect(() => {
@@ -160,7 +160,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                       <div className="flex items-center gap-4 flex-shrink-0">
                           <div className="text-right">
                              <span className="block font-mono font-black text-sm text-yellow-500 leading-none">{(p.total_sats_won || 0).toLocaleString()}</span>
-                             <span className="text-[8px] font-black text-neutral-600 uppercase">Sats</span>
+                              <span className="text-[8px] font-black text-neutral-600 uppercase">{t('leaderboard_sats_label')}</span>
                           </div>
                           {!isMe && (
                              <button 
@@ -177,11 +177,11 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
 
                {/* SUCHE */}
                <div className="mt-6">
-                 <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Spieler suchen</label>
+                 <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">{t('leaderboard_search_label')}</label>
                  <input
                    value={search}
                    onChange={(e) => setSearch(e.target.value)}
-                   placeholder="Name eingeben..."
+                   placeholder={t('leaderboard_search_placeholder')}
                    className="mt-2 w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-orange-500"
                  />
                  {search.trim() && (
@@ -189,7 +189,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                      const term = search.trim().toLowerCase();
                      const found = leaderboard.find(p => (p.username || '').toLowerCase().includes(term));
                      if (!found) {
-                       return <p className="text-xs text-neutral-500 mt-2">Kein Spieler gefunden.</p>;
+                       return <p className="text-xs text-neutral-500 mt-2">{t('leaderboard_search_empty')}</p>;
                      }
                      const isMe = user && found.username === userName;
                      return (
@@ -206,7 +206,7 @@ const LeaderboardView = ({ onBack, onChallenge }) => {
                          <div className="flex items-center gap-3">
                            <div className="text-right">
                              <span className="block font-mono font-black text-sm text-yellow-500 leading-none">{(found.total_sats_won || 0).toLocaleString()}</span>
-                             <span className="text-[8px] font-black text-neutral-600 uppercase">Sats</span>
+                             <span className="text-[8px] font-black text-neutral-600 uppercase">{t('leaderboard_sats_label')}</span>
                            </div>
                            {!isMe && (
                              <button

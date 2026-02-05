@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+const cronSecret = Deno.env.get('CRON_SECRET') || '';
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false }
@@ -40,12 +41,20 @@ const determineWinner = (participants: string[], scores: Record<string, number>,
   return winner;
 };
 
-Deno.serve(async () => {
-  if (!supabaseUrl || !supabaseServiceKey) {
+Deno.serve(async (req) => {
+  if (!supabaseUrl || !supabaseServiceKey || !cronSecret) {
     return new Response(JSON.stringify({
       ok: false,
-      error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'
+      error: 'Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or CRON_SECRET'
     }), { status: 500 });
+  }
+
+  const providedSecret = req.headers.get('x-cron-secret') || '';
+  if (providedSecret !== cronSecret) {
+    return new Response(JSON.stringify({
+      ok: false,
+      error: 'Unauthorized'
+    }), { status: 401 });
   }
 
   const nowIso = new Date().toISOString();

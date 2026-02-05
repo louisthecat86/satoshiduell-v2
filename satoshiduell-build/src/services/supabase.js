@@ -821,13 +821,102 @@ export const deleteTournamentImage = async (imagePath) => {
 // ==========================================
 // 6. GAME FRAGEN
 // ==========================================
+const QUESTION_SELECT_FIELDS = 'id, question_de, question_en, question_es, option_de_1, option_de_2, option_de_3, option_de_4, option_en_1, option_en_2, option_en_3, option_en_4, option_es_1, option_es_2, option_es_3, option_es_4, correct_index';
+const mapQuestionRowToGameQuestion = (row, lang = 'de') => {
+  const text = (lang === 'de' ? row.question_de : null)
+    || (lang === 'en' ? row.question_en : null)
+    || (lang === 'es' ? row.question_es : null)
+    || row.question_de
+    || row.question_en
+    || row.question_es
+    || 'Frage ohne Text';
+
+  const answers = [
+    (lang === 'de' ? row.option_de_1 : null)
+      || (lang === 'en' ? row.option_en_1 : null)
+      || (lang === 'es' ? row.option_es_1 : null)
+      || row.option_de_1
+      || row.option_en_1
+      || row.option_es_1
+      || 'A',
+    (lang === 'de' ? row.option_de_2 : null)
+      || (lang === 'en' ? row.option_en_2 : null)
+      || (lang === 'es' ? row.option_es_2 : null)
+      || row.option_de_2
+      || row.option_en_2
+      || row.option_es_2
+      || 'B',
+    (lang === 'de' ? row.option_de_3 : null)
+      || (lang === 'en' ? row.option_en_3 : null)
+      || (lang === 'es' ? row.option_es_3 : null)
+      || row.option_de_3
+      || row.option_en_3
+      || row.option_es_3
+      || 'C',
+    (lang === 'de' ? row.option_de_4 : null)
+      || (lang === 'en' ? row.option_en_4 : null)
+      || (lang === 'es' ? row.option_es_4 : null)
+      || row.option_de_4
+      || row.option_en_4
+      || row.option_es_4
+      || 'D'
+  ];
+
+  const rawCorrect = row.correct_index ?? 0;
+  const normalizedCorrect = rawCorrect >= 0 && rawCorrect <= 3
+    ? rawCorrect
+    : Math.max(0, Math.min(3, rawCorrect - 1));
+
+  return {
+    id: row.id,
+    q: text,
+    a: answers,
+    c: normalizedCorrect
+  };
+};
+
+export const fetchQuestionIds = async (count = 5) => {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('id')
+    .limit(200);
+
+  if (error || !data || data.length === 0) {
+    return { data: [], error: error || new Error('Keine Fragen gefunden') };
+  }
+
+  const shuffled = [...data].sort(() => 0.5 - Math.random());
+  const selected = shuffled.slice(0, count).map(row => row.id);
+  return { data: selected, error: null };
+};
+
+export const fetchQuestionsByIds = async (ids = [], lang = 'de') => {
+  const cleanIds = (ids || []).filter(Boolean);
+  if (cleanIds.length === 0) return { data: [], error: null };
+
+  const { data, error } = await supabase
+    .from('questions')
+    .select(QUESTION_SELECT_FIELDS)
+    .in('id', cleanIds);
+
+  if (error || !data) return { data: [], error };
+
+  const byId = new Map(data.map(row => [String(row.id), row]));
+  const mapped = cleanIds
+    .map(id => byId.get(String(id)))
+    .filter(Boolean)
+    .map(row => mapQuestionRowToGameQuestion(row, lang));
+
+  return { data: mapped, error: null };
+};
+
 export const fetchGameQuestions = async (count = 5, lang = 'de') => {
   console.log(`🎲 Lade ${count} Fragen für Sprache '${lang}'...`);
 
   try {
     const { data, error } = await supabase
       .from('questions')
-      .select('*')
+      .select(QUESTION_SELECT_FIELDS)
       .limit(100);
 
     if (error || !data || data.length === 0) {
@@ -841,34 +930,7 @@ export const fetchGameQuestions = async (count = 5, lang = 'de') => {
 
     const shuffled = [...data].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, count);
-
-    const gameQuestions = selected.map(q => {
-      const text = (lang === 'de' ? q.question_de : null) || 
-                   (lang === 'en' ? q.question_en : null) || 
-                   (lang === 'es' ? q.question_es : null) || 
-                   q.question_de || "Frage ohne Text";
-
-      const answers = [
-        (lang === 'de' ? q.option_de_1 : null) || q.option_en_1 || q.option_de_1 || "A",
-        (lang === 'de' ? q.option_de_2 : null) || q.option_en_2 || q.option_de_2 || "B",
-        (lang === 'de' ? q.option_de_3 : null) || q.option_en_3 || q.option_de_3 || "C",
-        (lang === 'de' ? q.option_de_4 : null) || q.option_en_4 || q.option_de_4 || "D"
-      ];
-
-      const rawCorrect = q.correct_index ?? 0;
-      const normalizedCorrect = rawCorrect >= 0 && rawCorrect <= 3
-        ? rawCorrect
-        : Math.max(0, Math.min(3, rawCorrect - 1));
-
-      return {
-        id: q.id,
-        q: text,
-        a: answers,
-        c: normalizedCorrect
-      };
-    });
-
-    return gameQuestions;
+    return selected.map(row => mapQuestionRowToGameQuestion(row, lang));
 
   } catch (err) {
     console.error("Critical Error in fetchGameQuestions:", err);

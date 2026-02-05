@@ -388,7 +388,7 @@ const ResultView = ({ gameData, onHome }) => {
               
               {!isClaimed && withdrawData?.lnurl ? (
                   <div className="bg-white p-4 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.2)] mb-6 relative group flex flex-col items-center gap-4">
-                       <QRCodeCanvas value={`lightning:${withdrawData.lnurl}`} size={200} />
+                       <QRCodeCanvas value={withdrawData.lnurl} size={200} />
                        <a href={`lightning:${withdrawData.lnurl}`} className="w-full bg-red-500 py-3 rounded-lg text-white font-bold text-center flex items-center justify-center gap-2">
                            <Wallet size={18}/> Wallet öffnen
                        </a>
@@ -549,24 +549,24 @@ const ResultView = ({ gameData, onHome }) => {
                    <h3 className="font-black uppercase italic text-xl mb-4 text-white drop-shadow-md">{t('result_claim_title')}</h3>
 
                    <div className="w-full bg-white/5 border border-white/10 rounded-xl p-3 mb-4">
-                     <p className="text-xs text-neutral-400 mb-2 uppercase tracking-widest font-bold">Auszahlung wählen</p>
+                     <p className="text-xs text-neutral-400 mb-2 uppercase tracking-widest font-bold">{t('payout_choose_title')}</p>
                      <div className="flex gap-2">
                        <button
                          onClick={() => setPayoutChoice('full')}
                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-black uppercase ${payoutChoice === 'full' ? 'bg-green-500 text-black' : 'bg-white/10 text-white'}`}
                        >
-                         Voller Gewinn
+                         {t('payout_full_label')}
                        </button>
                        <button
                          onClick={() => setPayoutChoice('donate1')}
                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-black uppercase ${payoutChoice === 'donate1' ? 'bg-orange-500 text-black' : 'bg-white/10 text-white'}`}
                        >
-                         -1% Spende
+                         {t('payout_donate_label')}
                        </button>
                      </div>
                      {payoutChoice === 'donate1' && (
                        <p className="text-[10px] text-neutral-400 mt-2">
-                         Du spendest {donationAmount} SATS an die Weiterentwicklung.
+                         {t('payout_donate_hint', { amount: donationAmount })}
                        </p>
                      )}
                    </div>
@@ -576,15 +576,15 @@ const ResultView = ({ gameData, onHome }) => {
                        onClick={() => { setShowPayoutQr(true); generateWinLink(payoutAmount); }}
                        className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 py-4 rounded-xl text-black font-black uppercase text-center shadow-lg hover:scale-[1.02] transition-transform"
                      >
-                       QR-Code anzeigen
+                       {t('payout_show_qr')}
                      </button>
                    ) : (
                      <div className="bg-white p-4 rounded-2xl shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4 relative flex flex-col items-center gap-4">
                         {withdrawData?.lnurl ? (
                             <>
-                               <QRCodeCanvas value={`lightning:${withdrawData.lnurl}`} size={260} level="H" includeMargin />
-                               <a href={`lightning:${withdrawData.lnurl}`} className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 py-3 rounded-lg text-black font-black uppercase text-center flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform">
-                                   <Wallet size={18}/> Wallet öffnen
+                               <QRCodeCanvas value={withdrawData.lnurl} size={260} level="H" includeMargin />
+                                 <a href={`lightning:${withdrawData.lnurl}`} className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 py-3 rounded-lg text-black font-black uppercase text-center flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform">
+                                   <Wallet size={18}/> {t('btn_wallet')}
                                </a>
                                <button onClick={() => {navigator.clipboard.writeText(withdrawData.lnurl); alert(t('nostr_copied'));}} className="absolute top-2 right-2 p-2 bg-neutral-100 rounded-lg hover:bg-neutral-200">
                                    <Copy size={14} className="text-neutral-500"/>
@@ -660,24 +660,24 @@ const ResultView = ({ gameData, onHome }) => {
                  <h3 className="font-black uppercase italic text-xl mb-4 text-white drop-shadow-md">{t('result_claim_title')}</h3>
 
                  <div className="w-full max-w-xs bg-white/5 border border-white/10 rounded-xl p-3 mb-4">
-                   <p className="text-xs text-neutral-400 mb-2 uppercase tracking-widest font-bold">Auszahlung wählen</p>
+                   <p className="text-xs text-neutral-400 mb-2 uppercase tracking-widest font-bold">{t('payout_choose_title')}</p>
                    <div className="flex gap-2">
                      <button
                        onClick={() => setPayoutChoice('full')}
                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-black uppercase ${payoutChoice === 'full' ? 'bg-green-500 text-black' : 'bg-white/10 text-white'}`}
                      >
-                       Voller Gewinn
+                       {t('payout_full_label')}
                      </button>
                      <button
                        onClick={() => setPayoutChoice('donate1')}
                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-black uppercase ${payoutChoice === 'donate1' ? 'bg-orange-500 text-black' : 'bg-white/10 text-white'}`}
                      >
-                       -1% Spende
+                       {t('payout_donate_label')}
                      </button>
                    </div>
                    {payoutChoice === 'donate1' && (
                      <p className="text-[10px] text-neutral-400 mt-2">
-                       Du spendest {donationAmount} SATS an die Weiterentwicklung.
+                       {t('payout_donate_hint', { amount: donationAmount })}
                      </p>
                    )}
                  </div>
@@ -687,15 +687,15 @@ const ResultView = ({ gameData, onHome }) => {
                      onClick={() => { setShowPayoutQr(true); generateWinLink(payoutAmount); }}
                      className="w-full max-w-xs bg-gradient-to-r from-orange-500 to-yellow-500 py-4 rounded-xl text-black font-black uppercase text-center shadow-lg hover:scale-[1.02] transition-transform"
                    >
-                     QR-Code anzeigen
+                     {t('payout_show_qr')}
                    </button>
                  ) : (
                    <div className="bg-white p-4 rounded-2xl shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4 relative flex flex-col items-center gap-4">
                       {withdrawData?.lnurl ? (
                           <>
-                             <QRCodeCanvas value={`lightning:${withdrawData.lnurl}`} size={260} level="H" includeMargin />
+                             <QRCodeCanvas value={withdrawData.lnurl} size={260} level="H" includeMargin />
                              <a href={`lightning:${withdrawData.lnurl}`} className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 py-3 rounded-lg text-black font-black uppercase text-center flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform">
-                                 <Wallet size={18}/> Wallet öffnen
+                               <Wallet size={18}/> {t('btn_wallet')}
                              </a>
                              <button onClick={() => {navigator.clipboard.writeText(withdrawData.lnurl); alert(t('nostr_copied'));}} className="absolute top-2 right-2 p-2 bg-neutral-100 rounded-lg hover:bg-neutral-200">
                                  <Copy size={14} className="text-neutral-500"/>
@@ -720,7 +720,7 @@ const ResultView = ({ gameData, onHome }) => {
           {isClaimed && (
              <div className="bg-green-500/20 border border-green-500 p-4 rounded-2xl flex items-center gap-3 mb-6 animate-in zoom-in">
                  <CheckCircle2 className="text-green-500" size={24}/>
-                 <span className="font-bold text-green-100 uppercase text-sm">Gewinn ausgezahlt!</span>
+                 <span className="font-bold text-green-100 uppercase text-sm">{t('payout_claimed')}</span>
              </div>
           )}
 

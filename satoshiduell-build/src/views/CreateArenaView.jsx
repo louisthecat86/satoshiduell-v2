@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import { ArrowRight, X, Users, Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
-import { createArenaEntry, fetchGameQuestions } from '../services/supabase';
+import { createArenaEntry, fetchQuestionIds } from '../services/supabase';
 
 const CreateArenaView = ({ onCancel, onConfirm }) => {
   const { t } = useTranslation();
@@ -30,11 +30,13 @@ const CreateArenaView = ({ onCancel, onConfirm }) => {
     setErrorMsg(null);
 
     try {
-      const questions = await fetchGameQuestions(5, 'de');
-      if (!questions || questions.length === 0) throw new Error('Fehler: Keine Fragen geladen.');
+      const { data: questionIds, error: questionError } = await fetchQuestionIds(5);
+      if (questionError || !questionIds || questionIds.length === 0) {
+        throw new Error('Fehler: Keine Fragen geladen.');
+      }
 
       const creatorName = user?.username || user?.name || 'Unbekannt';
-      const { data, error } = await createArenaEntry(creatorName, parseInt(amount), maxPlayers, questions);
+      const { data, error } = await createArenaEntry(creatorName, parseInt(amount), maxPlayers, questionIds);
       if (error) throw error;
 
       if (onConfirm) onConfirm(data.id);
