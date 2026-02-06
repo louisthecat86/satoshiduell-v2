@@ -320,11 +320,15 @@ export default function App() {
     try {
       if (currentGame.mode === 'arena') {
         const { data, error } = await submitArenaResult(currentGame.id, userName, result.score, result.totalTime);
-        if (data) setCurrentGame(data);
+        if (data) {
+          setCurrentGame({ ...data, questions: currentGame.questions || [], mode: currentGame.mode });
+        }
         if (error) console.error('Arena submit error:', error);
       } else {
         const { data, error } = await submitGameResult(currentGame.id, role, result.score, result.totalTime);
-        if (data) setCurrentGame(data);
+        if (data) {
+          setCurrentGame({ ...data, questions: currentGame.questions || [], mode: currentGame.mode });
+        }
         if (error) console.error('Duel submit error:', error);
       }
     } catch (err) {
