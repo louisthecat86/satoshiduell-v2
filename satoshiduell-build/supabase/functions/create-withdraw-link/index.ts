@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const LNBITS_URL = Deno.env.get('LNBITS_URL') || '';
 const LNBITS_ADMIN_KEY = Deno.env.get('LNBITS_ADMIN_KEY') || '';
+const LNBITS_INVOICE_KEY = Deno.env.get('LNBITS_INVOICE_KEY') || '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
@@ -19,6 +20,48 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) => {
 
 // Maximale Auszahlung pro Einzeltransaktion (Sicherheitslimit)
 const MAX_PAYOUT_SATS = 50000;
+
+// ═══════════════════════════════════════════
+// LNbits Payment-Hash Verifizierung
+// Prüft ob eine Zahlung tatsächlich bei LNbits eingegangen ist
+// ═══════════════════════════════════════════
+async function verifyPaymentWithLnbits(paymentHash: string, expectedAmount: number): Promise<{ valid: boolean; error?: string }> {
+  if (!paymentHash) {
+    return { valid: false, error: 'No payment hash provided' };
+  }
+
+  try {
+    const response = await fetch(`${LNBITS_URL}/api/v1/payments/${paymentHash}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': LNBITS_INVOICE_KEY || LNBITS_ADMIN_KEY
+      }
+    });
+
+    if (!response.ok) {
+      return { valid: false, error: `Payment not found (${response.status})` };
+    }
+
+    const data = await response.json();
+
+    // Prüfe ob bezahlt
+    if (!data.paid) {
+      return { valid: false, error: 'Payment not yet confirmed' };
+    }
+
+    // Prüfe ob incoming (nicht outgoing) - Betrag in msats, incoming ist positiv
+    // LNbits speichert amount in msats (1 sat = 1000 msats)
+    const amountSats = Math.abs(data.amount) / 1000;
+    if (amountSats < expectedAmount) {
+      return { valid: false, error: `Payment amount ${amountSats} < expected ${expectedAmount}` };
+    }
+
+    return { valid: true };
+  } catch (_e) {
+    return { valid: false, error: 'Payment verification request failed' };
+  }
+}
 
 // LNbits Withdraw-Link erstellen (intern)
 async function createLnbitsWithdrawLink(amount: number, title: string) {
@@ -106,10 +149,10 @@ Deno.serve(async (req) => {
   if (!gameId) return jsonResponse({ ok: false, error: 'gameId is required' }, 400);
   if (!playerName) return jsonResponse({ ok: false, error: 'playerName is required' }, 400);
 
-  // Spiel aus Datenbank laden
+  // Spiel aus Datenbank laden (inkl. Payment-Hashes)
   const { data: game, error: gameError } = await supabase
     .from('duels')
-    .select('id, status, amount, creator, challenger, winner, is_claimed, claimed, mode, participants, participant_scores, participant_times, max_players, refund_claimed, creator_score, challenger_score')
+    .select('id, status, amount, creator, challenger, winner, is_claimed, claimed, mode, participants, participant_scores, participant_times, max_players, refund_claimed, creator_score, challenger_score, creator_payment_hash, challenger_payment_hash, participant_payment_hashes, creator_paid_at, challenger_paid_at, participant_paid_at')
     .eq('id', gameId)
     .single();
 
@@ -140,9 +183,25 @@ Deno.serve(async (req) => {
       if (refundClaimed[playerName]) {
         return jsonResponse({ ok: false, error: 'Refund already claimed' }, 400);
       }
-      // Spiel muss im richtigen Status sein (open = noch nicht alle da, oder finished mit refund-berechtigung)
+      // Spiel muss im richtigen Status sein
       if (!['open', 'pending_payment', 'finished'].includes(game.status)) {
         return jsonResponse({ ok: false, error: 'Game cannot be refunded in current status' }, 400);
+      }
+      // *** PAYMENT VERIFICATION: Prüfe ob der Spieler tatsächlich bezahlt hat ***
+      const participantHashes = game.participant_payment_hashes || {};
+      const playerHash = participantHashes[playerName];
+      if (playerHash) {
+        const verification = await verifyPaymentWithLnbits(playerHash, refundAmount);
+        if (!verification.valid) {
+          return jsonResponse({ ok: false, error: `Payment verification failed: ${verification.error}` }, 403);
+        }
+      }
+      // Hinweis: Für alte Spiele ohne Hash erlauben wir Refund mit paid_at Check
+      else {
+        const paidAt = (game.participant_paid_at || {})[playerName];
+        if (!paidAt) {
+          return jsonResponse({ ok: false, error: 'No payment record found for this player' }, 403);
+        }
       }
     } else {
       // Standard-Duell-Refund: Nur Creator kann refunden, Spiel muss noch offen sein
@@ -154,6 +213,15 @@ Deno.serve(async (req) => {
       }
       if (game.is_claimed || game.claimed) {
         return jsonResponse({ ok: false, error: 'Already claimed' }, 400);
+      }
+      // *** PAYMENT VERIFICATION ***
+      if (game.creator_payment_hash) {
+        const verification = await verifyPaymentWithLnbits(game.creator_payment_hash, refundAmount);
+        if (!verification.valid) {
+          return jsonResponse({ ok: false, error: `Payment verification failed: ${verification.error}` }, 403);
+        }
+      } else if (!game.creator_paid_at) {
+        return jsonResponse({ ok: false, error: 'No payment record found' }, 403);
       }
     }
 
@@ -180,6 +248,55 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: 'Already claimed' }, 400);
   }
 
+  // ═══════════════════════════════════════════
+  // *** KRITISCH: ZAHLUNGSVERIFIZIERUNG ***
+  // Bevor ein Withdraw-Link erstellt wird, MUSS
+  // verifiziert werden, dass ALLE Spieler tatsächlich
+  // über LNbits bezahlt haben.
+  // ═══════════════════════════════════════════
+  const gameAmount = game.amount || 0;
+
+  if (game.mode === 'arena') {
+    const participants = Array.isArray(game.participants) ? game.participants : [];
+    const participantHashes = game.participant_payment_hashes || {};
+    
+    for (const p of participants) {
+      const pKey = p.toLowerCase();
+      const hash = participantHashes[pKey];
+      if (hash) {
+        const verification = await verifyPaymentWithLnbits(hash, gameAmount);
+        if (!verification.valid) {
+          return jsonResponse({ ok: false, error: `Payment verification failed for participant: ${verification.error}` }, 403);
+        }
+      } else {
+        // Alte Spiele ohne Hash: paid_at als Fallback prüfen
+        const paidAt = (game.participant_paid_at || {})[pKey];
+        if (!paidAt) {
+          return jsonResponse({ ok: false, error: `No payment record for participant ${pKey}` }, 403);
+        }
+      }
+    }
+  } else {
+    // Standard-Duell: Beide Spieler müssen bezahlt haben
+    if (game.creator_payment_hash) {
+      const creatorVerify = await verifyPaymentWithLnbits(game.creator_payment_hash, gameAmount);
+      if (!creatorVerify.valid) {
+        return jsonResponse({ ok: false, error: `Creator payment verification failed: ${creatorVerify.error}` }, 403);
+      }
+    } else if (!game.creator_paid_at) {
+      return jsonResponse({ ok: false, error: 'No creator payment record' }, 403);
+    }
+
+    if (game.challenger_payment_hash) {
+      const challengerVerify = await verifyPaymentWithLnbits(game.challenger_payment_hash, gameAmount);
+      if (!challengerVerify.valid) {
+        return jsonResponse({ ok: false, error: `Challenger payment verification failed: ${challengerVerify.error}` }, 403);
+      }
+    } else if (!game.challenger_paid_at) {
+      return jsonResponse({ ok: false, error: 'No challenger payment record' }, 403);
+    }
+  }
+
   // Gewinner bestimmen und prüfen
   let isWinner = false;
   let expectedPayout = 0;
@@ -204,9 +321,24 @@ Deno.serve(async (req) => {
     isWinner = winner?.toLowerCase() === playerName;
     expectedPayout = (game.amount || 0) * participants.length;
   } else {
-    isWinner = game.winner?.toLowerCase() === playerName ||
-      (game.creator?.toLowerCase() === playerName && game.creator_score > game.challenger_score) ||
-      (game.challenger?.toLowerCase() === playerName && game.challenger_score > game.creator_score);
+    // Gewinner aus Scores berechnen (nicht aus game.winner vertrauen!)
+    const creatorWins = (game.creator_score ?? 0) > (game.challenger_score ?? 0);
+    const challengerWins = (game.challenger_score ?? 0) > (game.creator_score ?? 0);
+    
+    if (creatorWins && game.creator?.toLowerCase() === playerName) {
+      isWinner = true;
+    } else if (challengerWins && game.challenger?.toLowerCase() === playerName) {
+      isWinner = true;
+    } else if (!creatorWins && !challengerWins) {
+      // Unentschieden: Zeitvergleich
+      const creatorTime = game.creator_time ?? Number.MAX_SAFE_INTEGER;
+      const challengerTime = game.challenger_time ?? Number.MAX_SAFE_INTEGER;
+      if (creatorTime < challengerTime && game.creator?.toLowerCase() === playerName) {
+        isWinner = true;
+      } else if (challengerTime < creatorTime && game.challenger?.toLowerCase() === playerName) {
+        isWinner = true;
+      }
+    }
     expectedPayout = (game.amount || 0) * 2;
   }
 

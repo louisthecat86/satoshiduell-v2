@@ -151,7 +151,7 @@ const PaymentView = ({ amount, onPaymentSuccess }) => {
                 </p>
 
                 <button 
-                    onClick={onPaymentSuccess} // Startet erst jetzt das Spiel
+                    onClick={() => onPaymentSuccess(paymentHash)} // Startet erst jetzt das Spiel + übergibt Payment-Hash
                     className="w-full min-w-[200px] bg-gradient-to-r from-green-500 to-emerald-600 hover:scale-105 transition-all py-5 rounded-2xl shadow-xl flex items-center justify-center gap-3 group"
                 >
                     <PlayCircle size={28} className="text-white fill-white/20 group-hover:scale-110 transition-transform"/>

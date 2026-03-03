@@ -275,12 +275,12 @@ export default function App() {
     navigate('payment');            
   };
 
-  const handlePaymentDone = async () => {
+  const handlePaymentDone = async (paymentHash) => {
     if (isJoining && currentGame) {
-      console.log(`Joiner ${userName} hat bezahlt.`);
+      console.log(`Joiner ${userName} hat bezahlt. Hash: ${paymentHash}`);
       const { data, error } = currentGame.mode === 'arena'
-        ? await joinArena(currentGame.id, userName)
-        : await joinDuel(currentGame.id, userName);
+        ? await joinArena(currentGame.id, userName, paymentHash)
+        : await joinDuel(currentGame.id, userName, paymentHash);
       if (data) {
         const localizedQuestions = await ensureLocalizedQuestions(data.questions || []);
         setCurrentGame({ ...data, questions: localizedQuestions }); 
@@ -291,9 +291,9 @@ export default function App() {
         navigate('dashboard');
       }
     } else {
-      console.log("Creator hat bezahlt.");
+      console.log("Creator hat bezahlt. Hash:", paymentHash);
       if (currentGame) {
-        await recordCreatorPayment(currentGame.id, userName, currentGame.mode);
+        await recordCreatorPayment(currentGame.id, userName, currentGame.mode, paymentHash);
         const { data } = await activateDuel(currentGame.id);
         const gamePayload = data || currentGame;
         const localizedQuestions = await ensureLocalizedQuestions(gamePayload.questions || []);

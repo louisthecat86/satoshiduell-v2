@@ -290,17 +290,20 @@ export const getOpenDuelCount = async (myPlayerName) => {
 };
 
 // D. Duell beitreten
-export const joinDuel = async (duelId, challengerName) => {
+export const joinDuel = async (duelId, challengerName, paymentHash = null) => {
   const cleanChallenger = toLower(challengerName);
   console.log(`⚔️ ${cleanChallenger} tritt bei.`);
   
+  const updateData = { 
+    challenger: cleanChallenger,
+    status: 'active',
+    challenger_paid_at: new Date().toISOString()
+  };
+  if (paymentHash) updateData.challenger_payment_hash = paymentHash;
+
   const { data, error } = await supabase
     .from('duels')
-    .update({ 
-      challenger: cleanChallenger,
-      status: 'active',
-      challenger_paid_at: new Date().toISOString()
-    })
+    .update(updateData)
     .eq('id', duelId)
     .select()
     .single();
@@ -309,7 +312,7 @@ export const joinDuel = async (duelId, challengerName) => {
 };
 
 // D2. Arena beitreten
-export const joinArena = async (duelId, playerName) => {
+export const joinArena = async (duelId, playerName, paymentHash = null) => {
   const cleanPlayer = toLower(playerName);
 
   const { data: game, error: loadError } = await supabase
@@ -336,10 +339,12 @@ export const joinArena = async (duelId, playerName) => {
   const nextStatus = game.max_players && updatedParticipants.length >= game.max_players ? 'active' : game.status;
   const paidAtMap = { ...(game.participant_paid_at || {}) };
   paidAtMap[cleanPlayer] = new Date().toISOString();
+  const paymentHashes = { ...(game.participant_payment_hashes || {}) };
+  if (paymentHash) paymentHashes[cleanPlayer] = paymentHash;
 
   const { data, error } = await supabase
     .from('duels')
-    .update({ participants: updatedParticipants, status: nextStatus, participant_paid_at: paidAtMap })
+    .update({ participants: updatedParticipants, status: nextStatus, participant_paid_at: paidAtMap, participant_payment_hashes: paymentHashes })
     .eq('id', duelId)
     .select()
     .single();
@@ -359,13 +364,13 @@ export const activateDuel = async (duelId) => {
   return { data, error };
 };
 
-export const recordCreatorPayment = async (duelId, creatorName, mode = 'duel') => {
+export const recordCreatorPayment = async (duelId, creatorName, mode = 'duel', paymentHash = null) => {
   const timestamp = new Date().toISOString();
   if (mode === 'arena') {
     const cleanCreator = toLower(creatorName);
     const { data: game, error: loadError } = await supabase
       .from('duels')
-      .select('participant_paid_at')
+      .select('participant_paid_at, participant_payment_hashes')
       .eq('id', duelId)
       .single();
 
@@ -373,10 +378,12 @@ export const recordCreatorPayment = async (duelId, creatorName, mode = 'duel') =
 
     const paidAtMap = { ...(game.participant_paid_at || {}) };
     paidAtMap[cleanCreator] = timestamp;
+    const paymentHashes = { ...(game.participant_payment_hashes || {}) };
+    if (paymentHash) paymentHashes[cleanCreator] = paymentHash;
 
     const { data, error } = await supabase
       .from('duels')
-      .update({ participant_paid_at: paidAtMap })
+      .update({ participant_paid_at: paidAtMap, participant_payment_hashes: paymentHashes })
       .eq('id', duelId)
       .select()
       .single();
@@ -384,9 +391,12 @@ export const recordCreatorPayment = async (duelId, creatorName, mode = 'duel') =
     return { data, error };
   }
 
+  const updateData = { creator_paid_at: timestamp };
+  if (paymentHash) updateData.creator_payment_hash = paymentHash;
+
   const { data, error } = await supabase
     .from('duels')
-    .update({ creator_paid_at: timestamp })
+    .update(updateData)
     .eq('id', duelId)
     .select()
     .single();
