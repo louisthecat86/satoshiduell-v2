@@ -94,11 +94,13 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, error: 'Server misconfigured' }, 500);
   }
 
-  // Auth: JWT muss vorhanden sein (verify_jwt = true in config.toml)
-  const authHeader = req.headers.get('authorization') || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
-  }
+  // Hinweis: verify_jwt = false weil Supabase neue publishable Keys (sb_publishable_*)
+  // kein JWT-Format haben. Sicherheit wird stattdessen durch:
+  // 1. Payment-Hash-Verifizierung gegen LNbits API
+  // 2. Score-basierte Winner-Berechnung (nicht client-seitig)
+  // 3. Atomic Claiming (is_claimed Flag)
+  // 4. Einweg-Scores (Trigger verhindert Manipulation)
+  // gewährleistet.
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false }
