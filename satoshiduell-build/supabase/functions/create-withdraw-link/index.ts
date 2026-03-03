@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
   // Spiel aus Datenbank laden (inkl. Payment-Hashes)
   const { data: game, error: gameError } = await supabase
     .from('duels')
-    .select('id, status, amount, creator, challenger, winner, is_claimed, claimed, mode, participants, participant_scores, participant_times, max_players, refund_claimed, creator_score, challenger_score, creator_payment_hash, challenger_payment_hash, participant_payment_hashes, creator_paid_at, challenger_paid_at, participant_paid_at')
+    .select('id, status, amount, creator, challenger, winner, is_claimed, claimed, mode, participants, participant_scores, participant_times, max_players, refund_claimed, creator_score, challenger_score, creator_time, challenger_time, creator_payment_hash, challenger_payment_hash, participant_payment_hashes, creator_paid_at, challenger_paid_at, participant_paid_at')
     .eq('id', gameId)
     .single();
 
@@ -324,8 +324,12 @@ Deno.serve(async (req) => {
     expectedPayout = (game.amount || 0) * participants.length;
   } else {
     // Gewinner aus Scores berechnen (nicht aus game.winner vertrauen!)
-    const creatorWins = (game.creator_score ?? 0) > (game.challenger_score ?? 0);
-    const challengerWins = (game.challenger_score ?? 0) > (game.creator_score ?? 0);
+    const cScore = game.creator_score ?? 0;
+    const chScore = game.challenger_score ?? 0;
+    const creatorWins = cScore > chScore;
+    const challengerWins = chScore > cScore;
+
+    console.log(`[WIN] Game ${gameId}: creator=${game.creator} (score=${cScore}, time=${game.creator_time}), challenger=${game.challenger} (score=${chScore}, time=${game.challenger_time}), playerName=${playerName}`);
     
     if (creatorWins && game.creator?.toLowerCase() === playerName) {
       isWinner = true;
@@ -340,11 +344,19 @@ Deno.serve(async (req) => {
       } else if (challengerTime < creatorTime && game.challenger?.toLowerCase() === playerName) {
         isWinner = true;
       }
+      // Echtes Unentschieden (gleiche Scores UND gleiche Zeit): Ersteller darf claimen
+      if (!isWinner && creatorTime === challengerTime) {
+        console.log(`[WIN] True draw detected for game ${gameId} - allowing creator to claim`);
+        if (game.creator?.toLowerCase() === playerName) {
+          isWinner = true;
+        }
+      }
     }
     expectedPayout = (game.amount || 0) * 2;
   }
 
   if (!isWinner) {
+    console.log(`[WIN] Rejected: playerName=${playerName}, creator=${game.creator?.toLowerCase()}, challenger=${game.challenger?.toLowerCase()}, scores=${game.creator_score}:${game.challenger_score}, times=${game.creator_time}:${game.challenger_time}`);
     return jsonResponse({ ok: false, error: 'You are not the winner of this game' }, 403);
   }
 
