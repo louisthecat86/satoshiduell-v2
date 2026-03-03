@@ -2,12 +2,8 @@
 
 import { supabase } from './supabase';
 
-const LNBITS_URL = import.meta.env.VITE_LNBITS_URL;
-const INVOICE_KEY = import.meta.env.VITE_LNBITS_INVOICE_KEY; 
-
-// DEBUG: Env-Var Check (kann nach Debugging entfernt werden)
-console.log('🔑 LNBITS_URL gesetzt:', !!LNBITS_URL, LNBITS_URL ? LNBITS_URL.substring(0, 20) + '...' : 'UNDEFINED');
-console.log('🔑 INVOICE_KEY gesetzt:', !!INVOICE_KEY, INVOICE_KEY ? INVOICE_KEY.substring(0, 8) + '...' : 'UNDEFINED');
+const LNBITS_URL = import.meta.env.VITE_LNBITS_URL || 'https://timecatcher.lnbits.de';
+const INVOICE_KEY = import.meta.env.VITE_LNBITS_INVOICE_KEY || '55edd3fd009f4a0b84d02178ac06eefc';
 
 // 1. INVOICE ERSTELLEN
 export const createInvoice = async (amount, memo) => {
