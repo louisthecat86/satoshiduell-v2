@@ -5,6 +5,10 @@ import { supabase } from './supabase';
 const LNBITS_URL = import.meta.env.VITE_LNBITS_URL;
 const INVOICE_KEY = import.meta.env.VITE_LNBITS_INVOICE_KEY; 
 
+// DEBUG: Env-Var Check (kann nach Debugging entfernt werden)
+console.log('🔑 LNBITS_URL gesetzt:', !!LNBITS_URL, LNBITS_URL ? LNBITS_URL.substring(0, 20) + '...' : 'UNDEFINED');
+console.log('🔑 INVOICE_KEY gesetzt:', !!INVOICE_KEY, INVOICE_KEY ? INVOICE_KEY.substring(0, 8) + '...' : 'UNDEFINED');
+
 // 1. INVOICE ERSTELLEN
 export const createInvoice = async (amount, memo) => {
   try {
