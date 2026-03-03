@@ -26,7 +26,7 @@ import CreateTournamentView from './views/CreateTournamentView';
 import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult } from './services/supabase'; 
 import { useTranslation } from './hooks/useTranslation';
 import { useAuth } from './hooks/useAuth';
-import { createWithdrawLink } from './services/lnbits'; 
+import { createWithdrawLink, createRefundLink } from './services/lnbits'; 
 
 export default function App() {
   const { user, logout, refreshUser, pendingNpub } = useAuth();
@@ -348,7 +348,7 @@ export default function App() {
     }
     if (!confirm(`Willst du dieses Spiel stornieren und ${refundAmount} Sats zurückholen?`)) return;
     
-    const linkData = await createWithdrawLink(refundAmount, game.id);
+    const linkData = await createRefundLink(game.id, userName);
     if (!linkData || !linkData.lnurl) {
         alert("Fehler: Konnte keinen Refund-Link erstellen.");
         return;

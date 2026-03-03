@@ -107,16 +107,17 @@ export const usePayment = () => {
   };
 
   /**
-   * Erstellt einen Withdraw Link
+   * Erstellt einen Withdraw Link (benötigt jetzt playerName für Serverseitige Validierung)
    */
-  const generateWithdrawLink = async (amount, duelId) => {
+  const generateWithdrawLink = async (amount, duelId, playerName) => {
     setIsCreatingWithdraw(true);
     setError('');
 
     try {
       const result = await createWithdrawLink(
         amount, 
-        duelId
+        duelId,
+        playerName
       );
 
       setWithdrawLink(result.lnurl);

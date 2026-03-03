@@ -34,14 +34,14 @@ export const checkPaymentStatus = async (paymentHash) => {
   } catch (error) { return false; }
 };
 
-// 3. WITHDRAW LINK ERSTELLEN
-export const createWithdrawLink = async (amount, gameId) => {
+// 3. WITHDRAW LINK ERSTELLEN (für Gewinne)
+export const createWithdrawLink = async (amount, gameId, playerName) => {
   const sats = Math.floor(amount);
   console.log(`💸 Erzeuge Withdraw Link über ${sats} Sats...`);
 
   try {
     const { data, error } = await supabase.functions.invoke('create-withdraw-link', {
-      body: { amount: sats, gameId }
+      body: { amount: sats, gameId, playerName, type: 'win' }
     });
 
     if (error || !data?.lnurl) {
@@ -53,6 +53,28 @@ export const createWithdrawLink = async (amount, gameId) => {
 
   } catch (error) {
     console.error("Withdraw Exception:", error);
+    return null;
+  }
+};
+
+// 3b. REFUND LINK ERSTELLEN
+export const createRefundLink = async (gameId, playerName) => {
+  console.log(`🔄 Erzeuge Refund Link für Spiel ${gameId}...`);
+
+  try {
+    const { data, error } = await supabase.functions.invoke('create-withdraw-link', {
+      body: { gameId, playerName, type: 'refund' }
+    });
+
+    if (error || !data?.lnurl) {
+      const msg = error?.message || data?.error || 'Konnte Refund nicht erstellen';
+      throw new Error(msg);
+    }
+
+    return { lnurl: data.lnurl, id: data.id };
+
+  } catch (error) {
+    console.error("Refund Exception:", error);
     return null;
   }
 };

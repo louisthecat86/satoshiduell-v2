@@ -319,7 +319,7 @@ const ResultView = ({ gameData, onHome }) => {
   const generateWinLink = async (amountOverride = null) => {
       if (withdrawData) return;
       const winAmount = amountOverride ?? payoutAmount;
-      const dataLink = await createWithdrawLink(winAmount, finalGameData.id);
+      const dataLink = await createWithdrawLink(winAmount, finalGameData.id, userName);
       if (dataLink?.lnurl) {
           setWithdrawData(dataLink);
       }

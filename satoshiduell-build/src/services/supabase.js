@@ -170,7 +170,8 @@ export const verifyLogin = async (name, pin) => {
 
   const inputHash = await hashPin(pin);
   
-  if (user.pin === inputHash || String(user.pin) === String(pin).trim()) {
+  // NUR Hash-Vergleich – niemals Klartext-Vergleich (Sicherheit!)
+  if (user.pin === inputHash) {
     return { data: user, error: null };
   } else {
     return { data: null, error: { message: "Falsche PIN" } };
