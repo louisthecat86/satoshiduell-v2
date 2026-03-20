@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
+import BracketTree from '../components/ui/BracketTree';
 import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, KeyRound, Swords, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import BracketTree from '../components/ui/BracketTree';
 import { useTranslation } from '../hooks/useTranslation';
 import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
