@@ -165,51 +165,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   };
 
   // ============================================
-  // BRACKET TREE
-  // ============================================
-  const BracketTree = ({ matches }) => {
-    if (!matches || matches.length === 0) return <p className="text-xs text-neutral-500 text-center py-4">Bracket wird generiert sobald alle Plätze besetzt sind.</p>;
-
-    const rounds = {};
-    matches.forEach(m => { if (!rounds[m.round_name]) rounds[m.round_name] = []; rounds[m.round_name].push(m); });
-    const roundOrder = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
-    const sortedRounds = Object.keys(rounds).sort((a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b));
-    const me = (user?.username || '').toLowerCase();
-
-    return (
-      <div className="space-y-5">
-        {sortedRounds.map(roundName => {
-          const roundMatches = rounds[roundName];
-          const allFinished = roundMatches.every(m => m.status === 'finished');
-          const someActive = roundMatches.some(m => m.status === 'ready' || m.status === 'active');
-
-          return (
-            <div key={roundName}>
-              <div className="flex items-center gap-2 mb-2">
-                <h4 className={`text-[10px] font-bold uppercase tracking-widest pl-1 ${
-                  someActive ? 'text-green-400' : allFinished ? 'text-neutral-600' : 'text-purple-400'
-                }`}>
-                  {roundDisplayName(roundName)}
-                </h4>
-                {someActive && <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
-                {allFinished && <span className="text-[9px] text-neutral-600">✓</span>}
-              </div>
-              <div className="space-y-2">
-                {roundMatches.map(match => {
-                  const isMyMatch = me && (
-                    (match.player1 || '').toLowerCase() === me || (match.player2 || '').toLowerCase() === me
-                  );
-                  return <MatchCard key={match.id} match={match} isMyMatch={isMyMatch} me={me} />;
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  // ============================================
   // MODALS
   // ============================================
   const renderModals = () => (
