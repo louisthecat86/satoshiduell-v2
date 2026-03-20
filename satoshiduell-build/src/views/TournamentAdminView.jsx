@@ -11,6 +11,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
 import {
   fetchTournamentAdminData,
+  fetchProfiles,
   approveRegistration,
   rejectRegistration,
   markPrizeClaimed,
@@ -24,6 +25,7 @@ import {
   finalizeTournamentManually,
 } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 
 // ── Confirm Dialog (inline) ──
 const ConfirmDialog = ({ title, message, confirmLabel, variant, onConfirm, onCancel }) => (
@@ -95,6 +97,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   const [confirm, setConfirm] = useState(null);
   const [toast, setToast] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
+  const [avatarMap, setAvatarMap] = useState({});
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -125,6 +128,15 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
       console.error('Admin data load error:', error);
     } else {
       setData(adminData);
+      // Avatare laden
+      if (adminData?.tournament?.participants?.length > 0) {
+        const { data: profiles } = await fetchProfiles(adminData.tournament.participants);
+        const map = {};
+        (profiles || []).forEach(p => {
+          if (p.username) map[p.username.toLowerCase()] = p.avatar || null;
+        });
+        setAvatarMap(map);
+      }
     }
     setLoading(false);
   }, [tournamentId]);
@@ -767,6 +779,9 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-6 text-xs text-neutral-500 font-bold text-center">{index + 1}.</div>
+                          <div className="w-7 h-7 rounded-md border border-white/10 overflow-hidden bg-neutral-900 flex-shrink-0">
+                            <img src={avatarMap[entry.key] || getCryptoPunkAvatar(entry.name)} alt="" className="w-full h-full object-cover" />
+                          </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-bold text-white truncate">{entry.name}</span>

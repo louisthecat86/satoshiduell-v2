@@ -5,8 +5,9 @@ import BracketTree from '../components/ui/BracketTree';
 import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, KeyRound, Swords, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
+import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl, fetchProfiles } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
+import { getCryptoPunkAvatar } from '../utils/avatar';
 
 const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpenAdmin, onOpenRegistration }) => {
   const { t } = useTranslation();
@@ -24,6 +25,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const [tokenInput, setTokenInput] = useState('');
   const [tokenError, setTokenError] = useState('');
   const [tokenLoading, setTokenLoading] = useState(false);
+  const [avatarMap, setAvatarMap] = useState({});
 
   useEffect(() => { if (user?.username) refreshUser(user.username); }, []);
   useEffect(() => { setLocalCanCreate(user?.can_create_tournaments || false); }, [user?.can_create_tournaments]);
@@ -45,9 +47,8 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
   // Wenn Turnier ausgewählt: Daten laden + ggf. frisch von DB holen
   const loadSelectedTournamentData = useCallback(async (tournament) => {
-    if (!tournament) { setSelectedPrizes([]); setBracketMatches([]); return; }
+    if (!tournament) { setSelectedPrizes([]); setBracketMatches([]); setAvatarMap({}); return; }
 
-    // Turnier frisch von DB laden (damit bracket-status aktuell ist)
     const { data: fresh } = await fetchTournamentById(tournament.id);
     if (fresh) {
       setSelectedTournament(fresh);
@@ -60,6 +61,17 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     if ((fresh || tournament).format === 'bracket') {
       const { data: matches } = await fetchBracketMatches(tournament.id);
       setBracketMatches(matches || []);
+    }
+
+    // Avatare laden
+    const participants = (fresh || tournament).participants || [];
+    if (participants.length > 0) {
+      const { data: profiles } = await fetchProfiles(participants);
+      const map = {};
+      (profiles || []).forEach(p => {
+        if (p.username) map[p.username.toLowerCase()] = p.avatar || null;
+      });
+      setAvatarMap(map);
     }
   }, []);
 
@@ -481,6 +493,9 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                     <div key={entry.key || index} className={`flex items-center justify-between rounded-xl px-3 py-2 border mb-1 ${w ? 'border-yellow-500/40 bg-yellow-500/10' : 'border-white/5 bg-white/5'}`}>
                       <div className="flex items-center gap-2">
                         <div className="w-6 text-[10px] text-neutral-500 font-bold">{index + 1}.</div>
+                        <div className="w-7 h-7 rounded-md border border-white/10 overflow-hidden bg-neutral-900 flex-shrink-0">
+                          <img src={avatarMap[entry.key] || getCryptoPunkAvatar(entry.name)} alt="" className="w-full h-full object-cover" />
+                        </div>
                         <div className="text-xs font-bold text-white">{entry.name}</div>
                         {w && <Crown size={12} className="text-yellow-400" />}
                       </div>
@@ -499,7 +514,10 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
           {selectedTournament.status === 'finished' && selectedTournament.winner && (
             <div className="px-4 mb-6">
               <div className={`${isWinner ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'} border rounded-2xl p-4 text-center`}>
-                <Crown size={24} className="text-yellow-400 mx-auto mb-2" />
+                <div className="w-14 h-14 rounded-xl border-2 border-yellow-500/50 overflow-hidden bg-neutral-900 mx-auto mb-2 shadow-[0_0_15px_rgba(234,179,8,0.3)]">
+                  <img src={avatarMap[selectedTournament.winner.toLowerCase()] || getCryptoPunkAvatar(selectedTournament.winner)} alt="" className="w-full h-full object-cover" />
+                </div>
+                <Crown size={20} className="text-yellow-400 mx-auto mb-1" />
                 {isWinner ? (
                   <><p className="text-sm font-bold text-white mb-1">Du hast gewonnen!</p><p className="text-xs text-neutral-400">Der Veranstalter kontaktiert dich.</p></>
                 ) : (
