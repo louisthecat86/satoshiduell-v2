@@ -1134,6 +1134,42 @@ export const deleteSubmission = async (id) => {
 // hashToken, hashValue, generateToken, generateShortToken sind bereits definiert
 
 // ============================================================
+// TOURNAMENT CREATOR PERMISSIONS
+// ============================================================
+
+export const updatePlayerCanCreateTournament = async (username, canCreate) => {
+  const cleanName = (username || '').toLowerCase().trim();
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ can_create_tournaments: canCreate })
+    .eq('username', cleanName)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const fetchPlayersForTournamentPermission = async () => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('username, can_create_tournaments')
+    .order('username', { ascending: true });
+
+  if (error && error.message.includes('can_create_tournaments')) {
+    const { data: fallbackData } = await supabase
+      .from('profiles')
+      .select('username')
+      .order('username', { ascending: true });
+
+    return {
+      data: fallbackData?.map(p => ({ ...p, can_create_tournaments: false })) || [],
+      error: null
+    };
+  }
+
+  return { data, error };
+};
+
+// ============================================================
 // TOURNAMENT CRUD
 // ============================================================
 
