@@ -42,7 +42,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     sponsorUrl: '',
   });
 
-  const TOTAL_STEPS = 5;
+  const TOTAL_STEPS = 4;
 
   const updateForm = (key, value) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -463,76 +463,8 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
             </div>
           )}
 
-          {/* ===== STEP 3: ZUGANG ===== */}
+          {/* ===== STEP 3: PREISE ===== */}
           {step === 3 && (
-            <div className="space-y-4 animate-in fade-in">
-              <div>
-                <label className={labelClass}>Zugangsart</label>
-                <div className="space-y-2">
-                  {accessOptions.map(option => {
-                    const Icon = option.icon;
-                    return (
-                      <button
-                        key={option.value}
-                        onClick={() => updateForm('accessLevel', option.value)}
-                        className={`w-full p-4 rounded-xl text-left transition-all flex items-start gap-3 ${
-                          form.accessLevel === option.value
-                            ? 'bg-purple-500/20 border-2 border-purple-500'
-                            : 'bg-white/5 border border-white/10'
-                        }`}
-                      >
-                        <Icon size={20} className={form.accessLevel === option.value ? 'text-purple-400 mt-0.5' : 'text-neutral-500 mt-0.5'} />
-                        <div>
-                          <div className="font-bold text-sm text-white">{option.label}</div>
-                          <div className="text-[10px] text-neutral-400 mt-1">{option.desc}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {form.accessLevel === 'invite' && (
-                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
-                  <p className="text-xs text-neutral-300">
-                    Nach dem Erstellen erhältst du einen Einladungscode. Spieler die den Code nutzen, müssen sich mit Nostr, Telegram oder X/Twitter identifizieren. Jede Identität kann nur einmal teilnehmen.
-                  </p>
-                </div>
-              )}
-
-              {form.accessLevel === 'token' && (
-                <div>
-                  <label className={labelClass}>Kontaktinfo (Pflicht)</label>
-                  <input
-                    type="text"
-                    value={form.contactInfo}
-                    onChange={e => updateForm('contactInfo', e.target.value)}
-                    placeholder="z.B. Telegram: @dein_handle"
-                    className={inputClass}
-                  />
-                  <p className="text-[10px] text-neutral-500 mt-1">Spieler kontaktieren dich hierüber um einen Token zu erhalten</p>
-                </div>
-              )}
-
-              {(form.accessLevel === 'invite' || form.accessLevel === 'token') && (
-                <div>
-                  <label className={labelClass}>Kontaktinfo (optional)</label>
-                  {form.accessLevel !== 'token' && (
-                    <input
-                      type="text"
-                      value={form.contactInfo}
-                      onChange={e => updateForm('contactInfo', e.target.value)}
-                      placeholder="z.B. Telegram: @dein_handle"
-                      className={inputClass}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ===== STEP 4: PREISE ===== */}
-          {step === 4 && (
             <div className="space-y-4 animate-in fade-in">
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-4">
                 <p className="text-xs text-neutral-300">
@@ -582,8 +514,8 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
             </div>
           )}
 
-          {/* ===== STEP 5: SPONSOR & REVIEW ===== */}
-          {step === 5 && (
+          {/* ===== STEP 4: SPONSOR & REVIEW ===== */}
+          {step === 4 && (
             <div className="space-y-4 animate-in fade-in">
               <div>
                 <label className={labelClass}>Sponsor / Veranstalter (optional)</label>

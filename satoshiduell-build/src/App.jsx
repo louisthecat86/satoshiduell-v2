@@ -54,6 +54,18 @@ export default function App() {
   // --- HELPER: Sicherer Namensvergleich (CASE INSENSITIVE) ---
   const normalize = (str) => (str || "").toLowerCase().trim();
 
+  // Invite-Link aus URL erkennen (/t/CODE)
+  useEffect(() => {
+    const path = window.location.pathname;
+    const match = path.match(/^\/t\/([A-Za-z0-9]+)$/);
+    if (match) {
+      const code = match[1];
+      setTournamentRegistration({ tournamentId: null, inviteCode: code });
+      navigate('tournament-register');
+      window.history.replaceState({}, '', '/');
+    }
+  }, []);
+
   // --- NAVIGATION ---
   useEffect(() => {
     const handlePopState = (event) => {
