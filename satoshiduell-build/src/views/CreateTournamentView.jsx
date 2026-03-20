@@ -1,31 +1,48 @@
 import React, { useState } from 'react';
 import Background from '../components/ui/Background';
-import { ArrowLeft, Users } from 'lucide-react';
+import { ArrowLeft, Users, Trophy, Crown, Plus, Trash2, Gift, Lock, Globe, Link2, LayoutGrid } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
 
 const CreateTournamentView = ({ onCancel, onConfirm }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [step, setStep] = useState(1); // 1=Basic, 2=Access, 3=Review
+  const [step, setStep] = useState(1);
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deadlineMode, setDeadlineMode] = useState('deadline'); // deadline | players
 
   const [form, setForm] = useState({
+    // Step 1: Format
+    format: 'highscore',
     name: '',
     description: '',
+    imageFile: null,
+    imagePreview: '',
+
+    // Step 2: Config
+    questionCount: 10,
     maxPlayers: '',
-    questionCount: 30,
-    prizePool: '',
-    accessLevel: 'public',
     playDate: '',
     playTime: '',
     playUntil: '',
+    deadlineMode: 'deadline',
+    // Bracket-spezifisch
+    roundDeadlineHours: 24,
+    questionsPerRound: null,
+
+    // Step 3: Access
+    accessLevel: 'public',
     contactInfo: '',
-    imageFile: null,
-    imagePreview: '',
+
+    // Step 4: Prizes
+    prizes: [{ title: '', description: '' }],
+
+    // Step 5: Sponsor
+    sponsorName: '',
+    sponsorUrl: '',
   });
+
+  const TOTAL_STEPS = 5;
 
   const updateForm = (key, value) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -47,85 +64,124 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
       updateForm('imagePreview', '');
       return;
     }
-
     if (form.imagePreview) URL.revokeObjectURL(form.imagePreview);
     const previewUrl = URL.createObjectURL(file);
     updateForm('imageFile', file);
     updateForm('imagePreview', previewUrl);
   };
 
-  const accessLabel = form.accessLevel === 'token'
-    ? t('tournament_access_token')
-    : t('tournament_access_public');
+  const addPrize = () => {
+    setForm(prev => ({
+      ...prev,
+      prizes: [...prev.prizes, { title: '', description: '' }],
+    }));
+  };
+
+  const removePrize = (index) => {
+    if (form.prizes.length <= 1) return;
+    setForm(prev => ({
+      ...prev,
+      prizes: prev.prizes.filter((_, i) => i !== index),
+    }));
+  };
+
+  const updatePrize = (index, key, value) => {
+    setForm(prev => ({
+      ...prev,
+      prizes: prev.prizes.map((p, i) => i === index ? { ...p, [key]: value } : p),
+    }));
+  };
+
+  const getDefaultQuestionsPerRound = (maxP) => {
+    switch (parseInt(maxP)) {
+      case 4:  return { semi: 5, final: 10 };
+      case 8:  return { quarter: 5, semi: 7, final: 10 };
+      case 16: return { round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+      case 32: return { round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+      default: return { semi: 5, final: 10 };
+    }
+  };
+
+  const placeLabel = (index) => {
+    if (index === 0) return '🏆 1. Platz';
+    if (index === 1) return '🥈 2. Platz';
+    if (index === 2) return '🥉 3. Platz';
+    return `${index + 1}. Platz`;
+  };
+
+  const accessOptions = [
+    { value: 'public', label: 'Öffentlich', desc: 'Jeder kann beitreten', icon: Globe },
+    { value: 'invite', label: 'Einladungslink', desc: 'Nur mit Link + Identitätsprüfung', icon: Link2 },
+    { value: 'token', label: 'Individueller Token', desc: 'Creator vergibt Tokens persönlich', icon: Lock },
+  ];
+
+  const bracketSizes = [4, 8, 16, 32];
+
+  const validate = () => {
+    if (!form.name.trim()) { alert('Bitte Turniername eingeben'); return false; }
+    if (form.prizes.filter(p => p.title.trim()).length === 0) { alert('Mindestens ein Preis erforderlich'); return false; }
+
+    if (form.format === 'highscore') {
+      if (!form.questionCount || form.questionCount < 1) { alert('Mindestens 1 Frage'); return false; }
+      const hasDeadline = Boolean(form.playUntil);
+      const hasMax = Boolean(form.maxPlayers);
+      if (!hasDeadline && !hasMax) { alert('Deadline oder Spielerlimit erforderlich'); return false; }
+      if (hasDeadline) {
+        const d = new Date(form.playUntil);
+        if (isNaN(d.getTime()) || d <= new Date()) { alert('Deadline muss in der Zukunft liegen'); return false; }
+      }
+    }
+
+    if (form.format === 'bracket') {
+      if (!form.maxPlayers) { alert('Spieleranzahl für Bracket wählen'); return false; }
+    }
+
+    if (form.accessLevel === 'token' && !form.contactInfo.trim()) {
+      alert('Kontaktinfo für Token-Modus erforderlich');
+      return false;
+    }
+
+    return true;
+  };
 
   const handleCreate = async () => {
-    if (!form.name.trim()) {
-      alert(t('tournament_error_name'));
-      return;
-    }
-    const hasMaxPlayers = Boolean(form.maxPlayers);
-    const hasDeadline = Boolean(form.playUntil);
-    if (hasMaxPlayers) {
-      const parsedMax = parseInt(form.maxPlayers, 10);
-      if (Number.isNaN(parsedMax) || parsedMax < 2) {
-        alert(t('tournament_error_players'));
-        return;
-      }
-    }
-    if (!form.questionCount || form.questionCount < 1) {
-      alert(t('tournament_error_questions'));
-      return;
-    }
-    if (!form.prizePool || Number(form.prizePool) <= 0) {
-      alert(t('tournament_prize_pool_required'));
-      return;
-    }
-    if (!hasDeadline && !hasMaxPlayers) {
-      alert(t('tournament_error_need_deadline_or_players'));
-      return;
-    }
-    if (deadlineMode === 'deadline' && !hasDeadline) {
-      alert(t('tournament_error_deadline'));
-      return;
-    }
-    if (deadlineMode === 'players' && !hasMaxPlayers) {
-      alert(t('tournament_error_players'));
-      return;
-    }
-    if (form.accessLevel === 'token' && !form.contactInfo.trim()) {
-      alert(t('tournament_error_contact'));
-      return;
-    }
-    if (hasDeadline) {
-      const deadline = new Date(form.playUntil);
-      if (Number.isNaN(deadline.getTime()) || deadline <= new Date()) {
-        alert(t('tournament_error_deadline_future'));
-        return;
-      }
-    }
-
-    if (!user) {
-      setSubmitError(t('tournament_error_login'));
-      return;
-    }
-
-    if (user?.can_create_tournaments === false) {
-      setSubmitError(t('tournament_error_permission'));
-      return;
-    }
+    if (!validate()) return;
+    if (!user) { setSubmitError('Nicht eingeloggt'); return; }
+    if (!user.can_create_tournaments) { setSubmitError('Keine Berechtigung'); return; }
 
     setSubmitError('');
     setIsSubmitting(true);
-    const result = await onConfirm(form);
+
+    const tournamentPayload = {
+      name: form.name.trim(),
+      description: form.description.trim() || null,
+      format: form.format,
+      access_level: form.accessLevel,
+      contact_info: form.contactInfo.trim() || null,
+      sponsor_name: form.sponsorName.trim() || null,
+      sponsor_url: form.sponsorUrl.trim() || null,
+      question_count: form.format === 'highscore' ? form.questionCount : null,
+      max_players: form.maxPlayers ? parseInt(form.maxPlayers, 10) : null,
+      play_until: form.playUntil ? new Date(form.playUntil).toISOString() : null,
+      round_deadline_hours: form.format === 'bracket' ? form.roundDeadlineHours : null,
+      questions_per_round: form.format === 'bracket'
+        ? (form.questionsPerRound || getDefaultQuestionsPerRound(form.maxPlayers))
+        : null,
+    };
+
+    const prizes = form.prizes
+      .filter(p => p.title.trim())
+      .map(p => ({ title: p.title.trim(), description: p.description.trim() || null }));
+
+    const result = await onConfirm(tournamentPayload, prizes, form.imageFile);
     if (result && result.ok === false) {
-      if (result.message === 'LOGIN_REQUIRED') {
-        setSubmitError(t('tournament_error_login'));
-      } else {
-        setSubmitError(t('tournament_error_create'));
-      }
+      setSubmitError(result.message || 'Fehler beim Erstellen');
     }
     setIsSubmitting(false);
   };
+
+  const inputClass = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50 transition-colors';
+  const labelClass = 'text-xs font-bold text-neutral-400 uppercase mb-2 block';
 
   return (
     <Background>
@@ -137,286 +193,482 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
           </button>
           <div className="flex-1">
             <h2 className="text-xl font-black text-purple-500 uppercase tracking-widest">
-              {t('tournament_create_title')}
+              Turnier erstellen
             </h2>
             <p className="text-xs text-neutral-400 mt-1">
-              {t('tournament_step', { current: step, total: 3 })}
+              Schritt {step} von {TOTAL_STEPS}
             </p>
           </div>
         </div>
 
-        {/* Progress Bar */}
+        {/* Progress */}
         <div className="px-4 mb-6 flex gap-2">
-          {[1, 2, 3].map(s => (
-            <div key={s} className={`flex-1 h-1 rounded-full ${s <= step ? 'bg-purple-500' : 'bg-white/10'}`} />
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+            <div key={i} className={`flex-1 h-1 rounded-full transition-colors ${i < step ? 'bg-purple-500' : 'bg-white/10'}`} />
           ))}
         </div>
 
-        <div className="flex-1 px-4 pb-24 overflow-y-auto scrollbar-hide">
-          {/* STEP 1: BASIC INFO */}
+        <div className="flex-1 px-4 pb-28 overflow-y-auto scrollbar-hide">
+
+          {/* ===== STEP 1: FORMAT & BASICS ===== */}
           {step === 1 && (
             <div className="space-y-4 animate-in fade-in">
               <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_name_label')}
-                </label>
+                <label className={labelClass}>Format</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => updateForm('format', 'highscore')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      form.format === 'highscore'
+                        ? 'border-purple-500 bg-purple-500/10'
+                        : 'border-white/10 bg-white/5'
+                    }`}
+                  >
+                    <Trophy size={24} className={form.format === 'highscore' ? 'text-purple-400' : 'text-neutral-500'} />
+                    <div className="mt-2 text-sm font-bold text-white">Highscore</div>
+                    <div className="text-[10px] text-neutral-400 mt-1">Alle spielen dasselbe Quiz, Rangliste entscheidet</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateForm('format', 'bracket')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      form.format === 'bracket'
+                        ? 'border-purple-500 bg-purple-500/10'
+                        : 'border-white/10 bg-white/5'
+                    }`}
+                  >
+                    <LayoutGrid size={24} className={form.format === 'bracket' ? 'text-purple-400' : 'text-neutral-500'} />
+                    <div className="mt-2 text-sm font-bold text-white">Bracket</div>
+                    <div className="text-[10px] text-neutral-400 mt-1">K.O.-Turnierbaum, 1v1 pro Runde</div>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Turniername</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={e => updateForm('name', e.target.value)}
-                  placeholder={t('tournament_name_placeholder')}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
+                  placeholder="z.B. Bitcoin Knowledge Cup 2026"
+                  className={inputClass}
+                  maxLength={100}
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_desc_label')}
-                </label>
+                <label className={labelClass}>Beschreibung</label>
                 <textarea
                   value={form.description}
                   onChange={e => updateForm('description', e.target.value)}
-                  placeholder={t('tournament_desc_placeholder')}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50 min-h-[100px]"
+                  placeholder="Worum geht es? Wer stiftet die Preise?"
+                  className={`${inputClass} min-h-[80px]`}
+                  maxLength={500}
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_deadline_mode_label')}
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDeadlineMode('deadline')}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold uppercase transition-all ${
-                      deadlineMode === 'deadline'
-                        ? 'bg-purple-500 text-black'
-                        : 'bg-white/5 text-white'
-                    }`}
-                  >
-                    {t('tournament_deadline_mode_deadline')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeadlineMode('players')}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold uppercase transition-all ${
-                      deadlineMode === 'players'
-                        ? 'bg-purple-500 text-black'
-                        : 'bg-white/5 text-white'
-                    }`}
-                  >
-                    {t('tournament_deadline_mode_players')}
-                  </button>
-                </div>
-              </div>
-
-              {deadlineMode === 'players' && (
-                <div>
-                  <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block flex items-center gap-2">
-                    <Users size={14} /> {t('tournament_max_players_label')}
-                  </label>
-                  <input
-                    type="number"
-                    value={form.maxPlayers}
-                    onChange={e => updateForm('maxPlayers', e.target.value)}
-                    placeholder={t('tournament_max_players_placeholder')}
-                    min="2"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
-                  />
-                  <p className="text-[10px] text-neutral-500 mt-1">{t('tournament_max_players_hint')}</p>
-                </div>
-              )}
-
-              {deadlineMode === 'deadline' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                      {t('tournament_deadline_date_label')}
-                    </label>
-                    <input
-                      type="date"
-                      value={form.playDate}
-                      onChange={e => {
-                        updateForm('playDate', e.target.value);
-                        updateDeadline(e.target.value, form.playTime);
-                      }}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                      {t('tournament_deadline_time_label')}
-                    </label>
-                    <input
-                      type="time"
-                      value={form.playTime}
-                      onChange={e => {
-                        updateForm('playTime', e.target.value);
-                        updateDeadline(form.playDate, e.target.value);
-                      }}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
-                    />
-                  </div>
-                  <p className="text-[10px] text-neutral-500 col-span-2">{t('tournament_play_until_hint')}</p>
-                </div>
-              )}
-
-              <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_question_count_label')}
-                </label>
-                <input
-                  type="number"
-                  value={form.questionCount}
-                  onChange={e => updateForm('questionCount', parseInt(e.target.value) || 0)}
-                  min="1"
-                  max="100"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
-                />
-                <p className="text-[10px] text-neutral-500 mt-1">{t('tournament_question_count_hint')}</p>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_prize_pool_label')}
-                </label>
-                <input
-                  type="number"
-                  value={form.prizePool}
-                  onChange={e => updateForm('prizePool', e.target.value)}
-                  min="1"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
-                />
-                <p className="text-[10px] text-neutral-500 mt-1">{t('tournament_prize_pool_required')}</p>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_image_label')}
-                </label>
+                <label className={labelClass}>Turnierbild (optional)</label>
                 <input
                   type="file"
                   accept="image/*"
                   onChange={handleImageChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none"
+                  className={inputClass}
                 />
                 {form.imagePreview && (
                   <div className="mt-3 rounded-xl overflow-hidden border border-white/10">
-                    <img
-                      src={form.imagePreview}
-                      alt=""
-                      className="w-full h-32 object-cover"
-                    />
+                    <img src={form.imagePreview} alt="" className="w-full h-32 object-cover" />
                   </div>
                 )}
-                <p className="text-[10px] text-neutral-500 mt-1">{t('tournament_image_hint')}</p>
               </div>
             </div>
           )}
 
-          {/* STEP 2: ACCESS & WINDOW */}
+          {/* ===== STEP 2: KONFIGURATION ===== */}
           {step === 2 && (
             <div className="space-y-4 animate-in fade-in">
+
+              {/* Highscore Config */}
+              {form.format === 'highscore' && (
+                <>
+                  <div>
+                    <label className={labelClass}>Anzahl Fragen</label>
+                    <input
+                      type="number"
+                      value={form.questionCount}
+                      onChange={e => updateForm('questionCount', parseInt(e.target.value) || 0)}
+                      min="1" max="100"
+                      className={inputClass}
+                    />
+                    <p className="text-[10px] text-neutral-500 mt-1">Alle Teilnehmer spielen dasselbe Quiz mit dieser Anzahl Fragen</p>
+                  </div>
+
+                  <div>
+                    <label className={labelClass}>Begrenzung</label>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => updateForm('deadlineMode', 'deadline')}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold uppercase transition-all ${
+                          form.deadlineMode === 'deadline' ? 'bg-purple-500 text-black' : 'bg-white/5 text-white'
+                        }`}
+                      >
+                        Deadline
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateForm('deadlineMode', 'players')}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold uppercase transition-all ${
+                          form.deadlineMode === 'players' ? 'bg-purple-500 text-black' : 'bg-white/5 text-white'
+                        }`}
+                      >
+                        Spielerlimit
+                      </button>
+                    </div>
+                  </div>
+
+                  {form.deadlineMode === 'deadline' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className={labelClass}>Datum</label>
+                        <input
+                          type="date"
+                          value={form.playDate}
+                          onChange={e => { updateForm('playDate', e.target.value); updateDeadline(e.target.value, form.playTime); }}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Uhrzeit</label>
+                        <input
+                          type="time"
+                          value={form.playTime}
+                          onChange={e => { updateForm('playTime', e.target.value); updateDeadline(form.playDate, e.target.value); }}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {form.deadlineMode === 'players' && (
+                    <div>
+                      <label className={labelClass}>Max. Teilnehmer</label>
+                      <input
+                        type="number"
+                        value={form.maxPlayers}
+                        onChange={e => updateForm('maxPlayers', e.target.value)}
+                        placeholder="z.B. 50"
+                        min="2"
+                        className={inputClass}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Bracket Config */}
+              {form.format === 'bracket' && (
+                <>
+                  <div>
+                    <label className={labelClass}>Spieleranzahl</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {bracketSizes.map(size => (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => {
+                            updateForm('maxPlayers', size);
+                            updateForm('questionsPerRound', getDefaultQuestionsPerRound(size));
+                          }}
+                          className={`px-3 py-3 rounded-xl text-sm font-bold transition-all ${
+                            parseInt(form.maxPlayers) === size
+                              ? 'bg-purple-500 text-black'
+                              : 'bg-white/5 text-white hover:bg-white/10'
+                          }`}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={labelClass}>Zeitlimit pro Runde (Stunden)</label>
+                    <input
+                      type="number"
+                      value={form.roundDeadlineHours}
+                      onChange={e => updateForm('roundDeadlineHours', parseInt(e.target.value) || 24)}
+                      min="1" max="168"
+                      className={inputClass}
+                    />
+                    <p className="text-[10px] text-neutral-500 mt-1">Nach Ablauf wird der Spieler der gespielt hat automatisch weitergeleitet</p>
+                  </div>
+
+                  {form.maxPlayers && form.questionsPerRound && (
+                    <div>
+                      <label className={labelClass}>Fragen pro Runde</label>
+                      <div className="space-y-2">
+                        {Object.entries(form.questionsPerRound).map(([round, count]) => {
+                          const roundLabels = {
+                            round_of_32: 'Runde der 32',
+                            round_of_16: 'Achtelfinale',
+                            quarter: 'Viertelfinale',
+                            semi: 'Halbfinale',
+                            final: 'Finale',
+                          };
+                          return (
+                            <div key={round} className="flex items-center gap-3">
+                              <span className="text-xs text-neutral-300 w-28">{roundLabels[round] || round}</span>
+                              <input
+                                type="number"
+                                value={count}
+                                onChange={e => {
+                                  const newVal = parseInt(e.target.value) || 1;
+                                  updateForm('questionsPerRound', {
+                                    ...form.questionsPerRound,
+                                    [round]: newVal,
+                                  });
+                                }}
+                                min="1" max="30"
+                                className="w-20 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-center outline-none focus:border-purple-500/50"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className={labelClass}>Registrierungs-Deadline (optional)</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="date"
+                        value={form.playDate}
+                        onChange={e => { updateForm('playDate', e.target.value); updateDeadline(e.target.value, form.playTime); }}
+                        className={inputClass}
+                      />
+                      <input
+                        type="time"
+                        value={form.playTime}
+                        onChange={e => { updateForm('playTime', e.target.value); updateDeadline(form.playDate, e.target.value); }}
+                        className={inputClass}
+                      />
+                    </div>
+                    <p className="text-[10px] text-neutral-500 mt-1">Danach können keine neuen Spieler mehr beitreten</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ===== STEP 3: ZUGANG ===== */}
+          {step === 3 && (
+            <div className="space-y-4 animate-in fade-in">
               <div>
-                <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                  {t('tournament_access_label')}
-                </label>
+                <label className={labelClass}>Zugangsart</label>
                 <div className="space-y-2">
-                  {[
-                    { value: 'public', label: t('tournament_access_public'), desc: t('tournament_access_public_desc') },
-                    { value: 'token', label: t('tournament_access_token'), desc: t('tournament_access_token_desc') }
-                  ].map(option => (
-                    <button
-                      key={option.value}
-                      onClick={() => updateForm('accessLevel', option.value)}
-                      className={`w-full p-3 rounded-xl text-left transition-all ${
-                        form.accessLevel === option.value
-                          ? 'bg-purple-500/20 border-2 border-purple-500'
-                          : 'bg-white/5 border border-white/10'
-                      }`}
-                    >
-                      <div className="font-bold text-sm">{option.label}</div>
-                      <div className="text-[10px] text-neutral-400">{option.desc}</div>
-                    </button>
-                  ))}
+                  {accessOptions.map(option => {
+                    const Icon = option.icon;
+                    return (
+                      <button
+                        key={option.value}
+                        onClick={() => updateForm('accessLevel', option.value)}
+                        className={`w-full p-4 rounded-xl text-left transition-all flex items-start gap-3 ${
+                          form.accessLevel === option.value
+                            ? 'bg-purple-500/20 border-2 border-purple-500'
+                            : 'bg-white/5 border border-white/10'
+                        }`}
+                      >
+                        <Icon size={20} className={form.accessLevel === option.value ? 'text-purple-400 mt-0.5' : 'text-neutral-500 mt-0.5'} />
+                        <div>
+                          <div className="font-bold text-sm text-white">{option.label}</div>
+                          <div className="text-[10px] text-neutral-400 mt-1">{option.desc}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
+              {form.accessLevel === 'invite' && (
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                  <p className="text-xs text-neutral-300">
+                    Nach dem Erstellen erhältst du einen Einladungscode. Spieler die den Code nutzen, müssen sich mit Nostr, Telegram oder X/Twitter identifizieren. Jede Identität kann nur einmal teilnehmen.
+                  </p>
+                </div>
+              )}
+
               {form.accessLevel === 'token' && (
                 <div>
-                  <label className="text-xs font-bold text-neutral-400 uppercase mb-2 block">
-                    {t('tournament_contact_label')}
-                  </label>
+                  <label className={labelClass}>Kontaktinfo (Pflicht)</label>
                   <input
                     type="text"
                     value={form.contactInfo}
                     onChange={e => updateForm('contactInfo', e.target.value)}
-                    placeholder={t('tournament_contact_placeholder')}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-purple-500/50"
+                    placeholder="z.B. Telegram: @dein_handle"
+                    className={inputClass}
                   />
-                  <p className="text-[10px] text-neutral-500 mt-1">{t('tournament_contact_hint')}</p>
+                  <p className="text-[10px] text-neutral-500 mt-1">Spieler kontaktieren dich hierüber um einen Token zu erhalten</p>
                 </div>
               )}
 
+              {(form.accessLevel === 'invite' || form.accessLevel === 'token') && (
+                <div>
+                  <label className={labelClass}>Kontaktinfo (optional)</label>
+                  {form.accessLevel !== 'token' && (
+                    <input
+                      type="text"
+                      value={form.contactInfo}
+                      onChange={e => updateForm('contactInfo', e.target.value)}
+                      placeholder="z.B. Telegram: @dein_handle"
+                      className={inputClass}
+                    />
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {/* STEP 3: REVIEW */}
-          {step === 3 && (
+          {/* ===== STEP 4: PREISE ===== */}
+          {step === 4 && (
             <div className="space-y-4 animate-in fade-in">
-              <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-2xl p-4">
-                <h3 className="text-lg font-black text-white mb-4">{form.name}</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-[10px] text-neutral-400 font-bold">{t('tournament_participants')}</span>
-                    <p className="text-white font-black">{form.maxPlayers || t('tournament_unlimited')}</p>
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-4">
+                <p className="text-xs text-neutral-300">
+                  <Gift size={14} className="inline text-yellow-400 mr-1" />
+                  Preise werden nach Turnier-Ende den Gewinnern zugeordnet. Die Auszahlung erfolgt direkt durch dich an den Gewinner.
+                </p>
+              </div>
+
+              {form.prizes.map((prize, idx) => (
+                <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-bold text-white">{placeLabel(idx)}</span>
+                    {form.prizes.length > 1 && (
+                      <button
+                        onClick={() => removePrize(idx)}
+                        className="text-red-400 hover:text-red-300 p-1"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
+                  <input
+                    type="text"
+                    value={prize.title}
+                    onChange={e => updatePrize(idx, 'title', e.target.value)}
+                    placeholder="z.B. 100.000 Sats / 50€ Bitrefill Gutschein"
+                    className={`${inputClass} mb-2`}
+                    maxLength={200}
+                  />
+                  <input
+                    type="text"
+                    value={prize.description}
+                    onChange={e => updatePrize(idx, 'description', e.target.value)}
+                    placeholder="Details (optional)"
+                    className={inputClass}
+                    maxLength={500}
+                  />
+                </div>
+              ))}
+
+              <button
+                onClick={addPrize}
+                className="w-full py-3 rounded-xl border border-dashed border-white/20 text-neutral-400 text-sm font-bold hover:border-purple-500/50 hover:text-purple-400 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus size={16} /> Weiteren Preis hinzufügen
+              </button>
+            </div>
+          )}
+
+          {/* ===== STEP 5: SPONSOR & REVIEW ===== */}
+          {step === 5 && (
+            <div className="space-y-4 animate-in fade-in">
+              <div>
+                <label className={labelClass}>Sponsor / Veranstalter (optional)</label>
+                <input
+                  type="text"
+                  value={form.sponsorName}
+                  onChange={e => updateForm('sponsorName', e.target.value)}
+                  placeholder="z.B. Bitrefill, Einundzwanzig e.V."
+                  className={`${inputClass} mb-2`}
+                />
+                <input
+                  type="url"
+                  value={form.sponsorUrl}
+                  onChange={e => updateForm('sponsorUrl', e.target.value)}
+                  placeholder="https://..."
+                  className={inputClass}
+                />
+              </div>
+
+              {/* Review Card */}
+              <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-2xl p-4 mt-4">
+                <h3 className="text-lg font-black text-white mb-4">{form.name || 'Turniername'}</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-[10px] text-neutral-400 font-bold">{t('tournament_question_count_label')}</span>
-                    <p className="text-white font-black">{form.questionCount}</p>
+                    <span className="text-[10px] text-neutral-400 font-bold">FORMAT</span>
+                    <p className="text-white font-black">{form.format === 'highscore' ? 'Highscore' : 'Bracket'}</p>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-neutral-400 font-bold">{t('tournament_prize_pool_label')}</span>
-                    <p className="text-white font-black">{form.prizePool}</p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-neutral-400 font-bold">{t('tournament_access_label')}</span>
-                    <p className="text-white font-black">{accessLabel}</p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-neutral-400 font-bold">{t('tournament_play_until_label')}</span>
-                    <p className="text-white font-black">
-                      {form.playUntil ? new Date(form.playUntil).toLocaleString() : '-'}
-                    </p>
-                  </div>
-                  {form.accessLevel === 'token' && (
-                    <div className="col-span-2">
-                      <span className="text-[10px] text-neutral-400 font-bold">{t('tournament_contact_label')}</span>
-                      <p className="text-white font-black break-words">{form.contactInfo}</p>
+                  {form.format === 'highscore' && (
+                    <div>
+                      <span className="text-[10px] text-neutral-400 font-bold">FRAGEN</span>
+                      <p className="text-white font-black">{form.questionCount}</p>
                     </div>
                   )}
+                  <div>
+                    <span className="text-[10px] text-neutral-400 font-bold">TEILNEHMER</span>
+                    <p className="text-white font-black">{form.maxPlayers || 'Unbegrenzt'}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-neutral-400 font-bold">ZUGANG</span>
+                    <p className="text-white font-black">
+                      {form.accessLevel === 'public' ? 'Öffentlich' : form.accessLevel === 'invite' ? 'Einladungslink' : 'Token'}
+                    </p>
+                  </div>
+                  {form.playUntil && (
+                    <div className="col-span-2">
+                      <span className="text-[10px] text-neutral-400 font-bold">DEADLINE</span>
+                      <p className="text-white font-black">{new Date(form.playUntil).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {form.sponsorName && (
+                    <div className="col-span-2">
+                      <span className="text-[10px] text-neutral-400 font-bold">SPONSOR</span>
+                      <p className="text-white font-black">{form.sponsorName}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <span className="text-[10px] text-neutral-400 font-bold block mb-2">PREISE</span>
+                  {form.prizes.filter(p => p.title.trim()).map((prize, idx) => (
+                    <div key={idx} className="text-xs text-white mb-1">
+                      <span className="text-yellow-400 font-bold">{placeLabel(idx)}:</span> {prize.title}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Navigation Buttons */}
+        {/* Navigation */}
         <div className="fixed bottom-0 left-0 right-0 bg-[#111] border-t border-white/10 p-4 max-w-md mx-auto">
           <div className="flex gap-3">
             <button
               onClick={() => step > 1 ? setStep(step - 1) : onCancel()}
               className="flex-1 px-4 py-3 bg-white/5 text-white rounded-xl font-bold hover:bg-white/10 transition-colors"
             >
-              {step === 1 ? t('tournament_btn_cancel') : t('tournament_btn_back')}
+              {step === 1 ? 'Abbrechen' : 'Zurück'}
             </button>
-            {step < 3 ? (
+            {step < TOTAL_STEPS ? (
               <button
                 onClick={() => setStep(step + 1)}
                 className="flex-1 px-4 py-3 bg-purple-500 text-black rounded-xl font-black hover:bg-purple-400 transition-colors"
               >
-                {t('tournament_btn_next')}
+                Weiter
               </button>
             ) : (
               <button
@@ -424,14 +676,12 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                 disabled={isSubmitting}
                 className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-black rounded-xl font-black hover:from-purple-400 hover:to-pink-400 transition-colors disabled:opacity-60"
               >
-                {isSubmitting ? t('tournament_btn_creating') : t('tournament_btn_create')}
+                {isSubmitting ? 'Erstelle...' : 'Turnier erstellen'}
               </button>
             )}
           </div>
           {submitError && (
-            <div className="mt-3 text-center text-xs text-red-400 font-bold">
-              {submitError}
-            </div>
+            <div className="mt-3 text-center text-xs text-red-400 font-bold">{submitError}</div>
           )}
         </div>
       </div>

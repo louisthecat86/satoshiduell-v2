@@ -1,35 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
-import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, KeyRound, Timer, Share2 } from 'lucide-react';
+import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, KeyRound, Timer, Share2, Shield, LayoutGrid, Link2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { addTournamentParticipant, createTournamentToken, deleteTournament, fetchTournaments, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
+import { addTournamentParticipant, createTournamentToken, deleteTournament, fetchTournaments, fetchTournamentPrizes, finalizeTournamentIfReady, redeemTournamentToken, redeemRegistrationToken, getTournamentImageUrl } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 
-const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
+const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpenAdmin, onOpenRegistration }) => {
   const { t } = useTranslation();
   const { user, refreshUser } = useAuth();
   const [selectedTournament, setSelectedTournament] = useState(null);
+  const [selectedPrizes, setSelectedPrizes] = useState([]);
   const [localCanCreate, setLocalCanCreate] = useState(user?.can_create_tournaments || false);
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, name }
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
-  const [joinModal, setJoinModal] = useState(null); // { tournament }
+  const [joinModal, setJoinModal] = useState(null);
   const [joinToken, setJoinToken] = useState('');
   const [joinError, setJoinError] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
-  const [generatedToken, setGeneratedToken] = useState(null); // { tournamentId, token }
+  const [generatedToken, setGeneratedToken] = useState(null);
 
-  // Refresh user data wenn View öffnet, um aktualisierte Permissions zu laden
   useEffect(() => {
     if (user?.username) {
       refreshUser(user.username);
     }
   }, []);
 
-  // Update lokaler State wenn user sich ändert
   useEffect(() => {
     setLocalCanCreate(user?.can_create_tournaments || false);
   }, [user?.can_create_tournaments]);
@@ -52,6 +51,18 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     loadTournaments();
   }, []);
 
+  // Preise laden wenn Turnier ausgewählt wird
+  useEffect(() => {
+    if (!selectedTournament) {
+      setSelectedPrizes([]);
+      return;
+    }
+    const loadPrizes = async () => {
+      const { data } = await fetchTournamentPrizes(selectedTournament.id);
+      setSelectedPrizes(data || []);
+    };
+    loadPrizes();
+  }, [selectedTournament?.id]);
 
   useEffect(() => {
     if (!selectedTournament) return;
@@ -66,14 +77,16 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     });
   }, [selectedTournament?.id]);
 
-  // Prüfen ob User ein Turnier löschen darf
   const canDeleteTournament = (tournament) => {
     if (!user) return false;
-    // Admin darf alles löschen
     if (user.is_admin === true) return true;
-    // Creator darf nur eigene löschen
     if (tournament.creator?.toLowerCase() === user.username?.toLowerCase()) return true;
     return false;
+  };
+
+  const isCreator = (tournament) => {
+    if (!user || !tournament) return false;
+    return tournament.creator?.toLowerCase() === user.username?.toLowerCase();
   };
 
   const handleDeleteTournament = async (tournamentId) => {
@@ -112,6 +125,13 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     }
     if (!canJoinTournament(tournament)) return;
 
+    // Invite-Modus: Registration-Flow öffnen
+    if (tournament.access_level === 'invite' && onOpenRegistration) {
+      onOpenRegistration(tournament.id, tournament.invite_code);
+      return;
+    }
+
+    // Token-Modus: Token-Eingabe
     if (tournament.access_level === 'token') {
       setJoinToken('');
       setJoinError('');
@@ -119,6 +139,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
       return;
     }
 
+    // Public: Direkt beitreten
     setJoinLoading(true);
     const { data, error } = await addTournamentParticipant(tournament.id, user.username);
     setJoinLoading(false);
@@ -145,18 +166,26 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
 
     setJoinLoading(true);
     setJoinError('');
-    const { data, error } = await redeemTournamentToken(joinModal.tournament.id, joinToken.trim(), user?.username);
+
+    // Versuche zuerst als Registration-Token, dann als alten Token
+    let result = await redeemRegistrationToken(joinModal.tournament.id, joinToken.trim(), user?.username);
+
+    if (result.error) {
+      // Fallback: alter Token-Flow
+      result = await redeemTournamentToken(joinModal.tournament.id, joinToken.trim(), user?.username);
+    }
+
     setJoinLoading(false);
 
-    if (error) {
-      console.error('Token redeem error:', error);
+    if (result.error) {
+      console.error('Token redeem error:', result.error);
       setJoinError(t('tournament_join_token_invalid'));
       return;
     }
 
-    if (data) {
-      setSelectedTournament(data);
-      setTournaments(prev => prev.map(tour => (tour.id === data.id ? data : tour)));
+    if (result.data) {
+      setSelectedTournament(result.data);
+      setTournaments(prev => prev.map(tour => (tour.id === result.data.id ? result.data : tour)));
     }
     await loadTournaments();
     setJoinModal(null);
@@ -178,18 +207,23 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
   };
 
   const statusLabel = (status) => {
-    if (status === 'pending_payment') return t('tournament_status_pending');
     if (status === 'registration') return t('tournament_status_registration');
     if (status === 'active') return t('tournament_status_active');
     if (status === 'finished') return t('tournament_status_finished');
+    if (status === 'cancelled') return 'Abgesagt';
     return status;
+  };
+
+  const formatBadge = (format) => {
+    if (format === 'bracket') return 'Bracket';
+    return 'Highscore';
   };
 
   const visibleTournaments = localCanCreate
     ? tournaments
     : tournaments.filter(tournament => ['registration', 'active', 'finished'].includes(tournament.status));
 
-  const getPlayUntil = (tournament) => tournament?.play_until || tournament?.registration_ends_at || null;
+  const getPlayUntil = (tournament) => tournament?.play_until || null;
 
   const formatPlayUntil = (value) => {
     if (!value) return '-';
@@ -203,9 +237,11 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     tournament?.max_players ? tournament.max_players : t('tournament_unlimited')
   );
 
-  const accessLabel = (tournament) => (
-    tournament?.access_level === 'token' ? t('tournament_access_token') : t('tournament_access_public')
-  );
+  const accessLabel = (tournament) => {
+    if (tournament?.access_level === 'token') return t('tournament_access_token');
+    if (tournament?.access_level === 'invite') return 'Einladungslink';
+    return t('tournament_access_public');
+  };
 
   const hasPlayed = (tournament) => {
     if (!tournament || !user?.username) return false;
@@ -239,13 +275,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
       const score = scores[key];
       const timeMs = times[key];
       const played = score !== undefined && score !== null;
-      return {
-        name,
-        key,
-        score: played ? score : null,
-        timeMs: played ? timeMs : null,
-        played,
-      };
+      return { name, key, score: played ? score : null, timeMs: played ? timeMs : null, played };
     });
 
     rows.sort((a, b) => {
@@ -267,28 +297,17 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
   };
 
   const buildShareText = (tournament) => {
-    const url = 'https://www.satoshiduell.com';
+    const url = tournament.invite_code
+      ? `https://www.satoshiduell.com/t/${tournament.invite_code}`
+      : 'https://www.satoshiduell.com';
     const access = accessLabel(tournament);
     const description = (tournament?.description || '').trim();
-    const prizePool = tournament?.total_prize_pool || 0;
-
-    let limitLabel = '-';
-    if (tournament?.play_until) {
-      limitLabel = t('tournament_share_limit_deadline', {
-        date: formatPlayUntil(tournament.play_until)
-      });
-    } else if (tournament?.max_players) {
-      limitLabel = t('tournament_share_limit_players', {
-        count: tournament.max_players
-      });
-    }
 
     const lines = [
       t('tournament_share_title', { name: tournament?.name || '-' }),
       description ? t('tournament_share_line_desc', { description }) : null,
-      t('tournament_share_line_prize', { amount: prizePool }),
+      `Format: ${formatBadge(tournament.format)}`,
       t('tournament_share_line_access', { access }),
-      t('tournament_share_line_limit', { limit: limitLabel }),
       t('tournament_share_line_url', { url })
     ].filter(Boolean);
 
@@ -299,7 +318,9 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     if (!tournament) return;
     const title = t('tournament_share_title', { name: tournament.name || '' });
     const text = buildShareText(tournament);
-    const url = 'https://www.satoshiduell.com';
+    const url = tournament.invite_code
+      ? `https://www.satoshiduell.com/t/${tournament.invite_code}`
+      : 'https://www.satoshiduell.com';
 
     try {
       if (navigator.share) {
@@ -314,7 +335,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
       alert(t('tournament_share_unavailable'));
     } catch (err) {
       console.error('Share error:', err);
-      alert(t('tournament_share_unavailable'));
     }
   };
 
@@ -442,10 +462,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     </>
   );
 
+  // ============================================
+  // DETAIL VIEW (wenn ein Turnier ausgewählt ist)
+  // ============================================
   if (selectedTournament) {
     const isWinner = Boolean(selectedTournament.winner)
       && selectedTournament.winner.toLowerCase() === user?.username?.toLowerCase();
     const resultsList = getResultsList(selectedTournament);
+
     return (
       <Background>
         <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
@@ -461,15 +485,27 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                 <p className="text-xs text-neutral-500 mt-1">{selectedTournament.name}</p>
               </div>
             </div>
-            {canDeleteTournament(selectedTournament) && (
-              <button 
-                onClick={() => setDeleteConfirm({ id: selectedTournament.id, name: selectedTournament.name })}
-                className="bg-red-500/20 p-2 rounded-xl hover:bg-red-500/30 transition-colors border border-red-500/50"
-                title={t('tournament_delete_btn')}
-              >
-                <Trash2 className="text-red-400" size={20}/>
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* Admin Button für Creator */}
+              {(isCreator(selectedTournament) || user?.is_admin) && onOpenAdmin && (
+                <button
+                  onClick={() => onOpenAdmin(selectedTournament.id)}
+                  className="bg-purple-500/20 p-2 rounded-xl hover:bg-purple-500/30 transition-colors border border-purple-500/50"
+                  title="Admin Dashboard"
+                >
+                  <Shield className="text-purple-400" size={20}/>
+                </button>
+              )}
+              {canDeleteTournament(selectedTournament) && (
+                <button 
+                  onClick={() => setDeleteConfirm({ id: selectedTournament.id, name: selectedTournament.name })}
+                  className="bg-red-500/20 p-2 rounded-xl hover:bg-red-500/30 transition-colors border border-red-500/50"
+                  title={t('tournament_delete_btn')}
+                >
+                  <Trash2 className="text-red-400" size={20}/>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="px-4 mb-6">
@@ -477,9 +513,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
               const imageUrl = selectedTournament.image_url || getTournamentImageUrl(selectedTournament.image_path);
               if (!imageUrl) return null;
               return (
-                <div
-                  className="mb-4 h-40 rounded-2xl border border-white/10 overflow-hidden relative"
-                >
+                <div className="mb-4 h-40 rounded-2xl border border-white/10 overflow-hidden relative">
                   <div
                     className="absolute inset-0"
                     style={{
@@ -495,12 +529,17 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
               );
             })()}
             <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
-              <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-4 ml-1">{t('tournament_status_label')}</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest ml-1">{t('tournament_status_label')}</h3>
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
+                  selectedTournament.format === 'bracket'
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : 'bg-purple-500/20 text-purple-400'
+                }`}>
+                  {selectedTournament.format === 'bracket' ? '🏟️ Bracket' : '📊 Highscore'}
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-4 text-center">
-                <div>
-                  <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">{t('tournament_prize_pool_label')}</div>
-                  <div className="text-lg font-black text-yellow-400">{selectedTournament.total_prize_pool || 0}</div>
-                </div>
                 <div>
                   <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">{t('tournament_question_count_label')}</div>
                   <div className="text-lg font-black text-white">{questionCount(selectedTournament)}</div>
@@ -513,14 +552,22 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                   <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">{t('tournament_status_label')}</div>
                   <div className="text-lg font-black text-green-400">{statusLabel(selectedTournament.status)}</div>
                 </div>
+                <div>
+                  <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">{t('tournament_access_label')}</div>
+                  <div className="text-lg font-black text-white">{accessLabel(selectedTournament)}</div>
+                </div>
               </div>
-              <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-neutral-300">
-                <Timer size={14} className="text-orange-400" />
-                {t('tournament_play_until_label')}: {formatPlayUntil(getPlayUntil(selectedTournament))}
-              </div>
-              <div className="mt-3 text-center text-[11px] text-neutral-300">
-                {t('tournament_access_label')}: {accessLabel(selectedTournament)}
-              </div>
+              {selectedTournament.play_until && (
+                <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-neutral-300">
+                  <Timer size={14} className="text-orange-400" />
+                  {t('tournament_play_until_label')}: {formatPlayUntil(getPlayUntil(selectedTournament))}
+                </div>
+              )}
+              {selectedTournament.sponsor_name && (
+                <div className="mt-3 text-center text-[11px] text-neutral-300">
+                  Sponsor: <span className="font-bold text-white">{selectedTournament.sponsor_name}</span>
+                </div>
+              )}
               {selectedTournament.access_level === 'token' && selectedTournament.contact_info && (
                 <div className="mt-2 text-center text-[11px] text-neutral-400">
                   {t('tournament_contact_label')}: {selectedTournament.contact_info}
@@ -532,6 +579,58 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
             </div>
           </div>
 
+          {/* Preise */}
+          {selectedPrizes.length > 0 && (
+            <div className="px-4 mb-6">
+              <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
+                <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-3 ml-1">Preise</h3>
+                <div className="space-y-2">
+                  {selectedPrizes.map((prize, idx) => {
+                    const emoji = idx === 0 ? '🏆' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+                    return (
+                      <div key={prize.id} className="flex items-center gap-3 bg-white/5 rounded-xl px-3 py-2">
+                        <span className="text-sm">{emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-white truncate">{prize.title}</div>
+                          {prize.winner_username && (
+                            <div className="text-[10px] text-yellow-400">
+                              <Crown size={10} className="inline mr-1" />{prize.winner_username}
+                            </div>
+                          )}
+                        </div>
+                        {prize.claimed && (
+                          <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full">✓</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Invite-Code Anzeige für Creator */}
+          {selectedTournament.invite_code && isCreator(selectedTournament) && (
+            <div className="px-4 mb-6">
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-purple-400 uppercase">Einladungscode</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`https://www.satoshiduell.com/t/${selectedTournament.invite_code}`);
+                      alert('Link kopiert!');
+                    }}
+                    className="text-purple-300 hover:text-white"
+                  >
+                    <Link2 size={14} />
+                  </button>
+                </div>
+                <div className="font-mono text-lg text-white font-bold text-center">{selectedTournament.invite_code}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Ergebnisse / Rangliste */}
           <div className="px-4 mb-6">
             <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
               <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-4 ml-1">
@@ -542,14 +641,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
               ) : (
                 <div className="space-y-2">
                   {resultsList.map((entry, index) => {
-                    const isWinner = selectedTournament.winner
+                    const entryIsWinner = selectedTournament.winner
                       && entry.name
                       && entry.name.toLowerCase() === selectedTournament.winner.toLowerCase();
                     return (
                       <div
                         key={entry.key || entry.name || index}
                         className={`flex items-center justify-between rounded-xl px-3 py-2 border ${
-                          isWinner
+                          entryIsWinner
                             ? 'border-yellow-500/40 bg-yellow-500/10'
                             : 'border-white/5 bg-white/5'
                         }`}
@@ -559,7 +658,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                           <div className="text-xs font-bold text-white">
                             {entry.name || '-'}
                           </div>
-                          {isWinner && <Crown size={12} className="text-yellow-400" />}
+                          {entryIsWinner && <Crown size={12} className="text-yellow-400" />}
                         </div>
                         <div className="flex items-center gap-3 text-[10px] text-neutral-300">
                           <div>{entry.played ? entry.score : '-'}</div>
@@ -581,7 +680,9 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                 className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-black font-black py-4 flex items-center justify-center gap-2"
                 disabled={joinLoading}
               >
-                {selectedTournament.access_level === 'token'
+                {selectedTournament.access_level === 'invite'
+                  ? '🔗 Mit Einladung beitreten'
+                  : selectedTournament.access_level === 'token'
                   ? t('tournament_join_token_btn')
                   : t('tournament_join_btn')}
               </Button>
@@ -595,12 +696,21 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
               </Button>
             )}
             {selectedTournament.access_level === 'token'
-              && selectedTournament.creator?.toLowerCase() === user?.username?.toLowerCase() && (
+              && isCreator(selectedTournament) && (
               <Button
                 onClick={() => handleGenerateToken(selectedTournament)}
                 className="w-full bg-purple-500 hover:bg-purple-600 text-black font-black py-3 flex items-center justify-center gap-2"
               >
                 <KeyRound size={18} /> {t('tournament_token_generate')}
+              </Button>
+            )}
+            {/* Admin Dashboard Button */}
+            {(isCreator(selectedTournament) || user?.is_admin) && onOpenAdmin && (
+              <Button
+                onClick={() => onOpenAdmin(selectedTournament.id)}
+                className="w-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 font-black py-3 flex items-center justify-center gap-2 border border-purple-500/30"
+              >
+                <Shield size={18} /> Admin Dashboard
               </Button>
             )}
             {canShareTournament(selectedTournament) && (
@@ -611,32 +721,17 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                 <Share2 size={18} /> {t('tournament_share_btn')}
               </Button>
             )}
-            {selectedTournament.status === 'finished'
-              && isWinner
-              && selectedTournament.winner_token && (
+            {/* Gewinner-Info */}
+            {selectedTournament.status === 'finished' && isWinner && (
               <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-4 text-center">
-                <p className="text-xs text-neutral-300 mb-2">{t('tournament_payout_token_hint')}</p>
-                <div className="font-mono text-green-300 text-lg">{selectedTournament.winner_token}</div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(selectedTournament.winner_token);
-                    alert(t('nostr_copied') || 'Kopiert!');
-                  }}
-                  className="mt-3 w-full px-4 py-2 rounded-xl bg-white/10 text-white font-bold hover:bg-white/20 transition-all"
-                >
-                  {t('btn_copy_withdraw')}
-                </button>
+                <Crown size={24} className="text-yellow-400 mx-auto mb-2" />
+                <p className="text-sm font-bold text-white mb-1">Du hast gewonnen!</p>
+                <p className="text-xs text-neutral-400">
+                  Der Veranstalter wird dich für die Preisübergabe kontaktieren.
+                </p>
               </div>
             )}
-            {selectedTournament.status === 'finished'
-              && selectedTournament.creator?.toLowerCase() === user?.username?.toLowerCase()
-              && selectedTournament.winner_token && (
-              <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 text-center">
-                <p className="text-xs text-neutral-300 mb-2">{t('tournament_creator_token_hint')}</p>
-                <div className="font-mono text-purple-300 text-lg">{selectedTournament.winner_token}</div>
-              </div>
-            )}
-            {isParticipant(selectedTournament) && (
+            {isParticipant(selectedTournament) && !isWinner && (
               <div className="text-center text-xs text-green-400 font-bold">
                 {t('tournament_joined')}
               </div>
@@ -653,6 +748,9 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
     );
   }
 
+  // ============================================
+  // LIST VIEW (Turnierübersicht)
+  // ============================================
   return (
     <Background>
       <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
@@ -679,7 +777,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
           </button>
         </div>
 
-        {/* Create Tournament Button (nur für befähigte User) */}
+        {/* Create Tournament Button */}
         {localCanCreate && (
           <div className="px-4 mb-4">
             <div
@@ -703,6 +801,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
           {!loading && errorMsg && (
             <div className="text-center text-red-400 text-sm py-10">{errorMsg}</div>
           )}
+
           {/* Active Tournaments */}
           <div>
             <h3 className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-3 pl-1">
@@ -731,24 +830,30 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-r from-green-500/35 to-emerald-500/35" />
                       <div className="relative">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h4 className="text-white font-black text-sm mb-1">{tournament.name}</h4>
-                        <p className="text-[10px] text-neutral-200 line-clamp-1">{tournament.description}</p>
-                      </div>
-                      <div className="bg-green-500/20 px-2 py-1 rounded-lg">
-                        <span className="text-[10px] text-green-200 font-bold">{statusLabel(tournament.status)}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="text-yellow-200 font-bold">{t('tournament_prize_pool_short', { amount: tournament.total_prize_pool || 0 })}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <Users size={12} className="text-neutral-100" />
-                        <span className="text-white font-bold">{tournament.current_participants}/{maxPlayersLabel(tournament)}</span>
-                      </div>
-                    </div>
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h4 className="text-white font-black text-sm mb-1">{tournament.name}</h4>
+                            <p className="text-[10px] text-neutral-200 line-clamp-1">{tournament.description}</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                              tournament.format === 'bracket' ? 'bg-blue-500/30 text-blue-200' : 'bg-purple-500/30 text-purple-200'
+                            }`}>
+                              {formatBadge(tournament.format)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <Users size={12} className="text-neutral-100" />
+                            <span className="text-white font-bold">{tournament.current_participants}/{maxPlayersLabel(tournament)}</span>
+                          </div>
+                          {tournament.sponsor_name && (
+                            <div className="flex items-center gap-1 text-[10px]">
+                              <span className="text-yellow-200 font-bold">{tournament.sponsor_name}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </button>
                   );
@@ -797,28 +902,34 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-r from-orange-500/35 to-yellow-500/35" />
                       <div className="relative">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h4 className="text-white font-black text-sm mb-1">{tournament.name}</h4>
-                        <p className="text-[10px] text-neutral-200 line-clamp-1">{tournament.description}</p>
-                      </div>
-                      <div className="bg-orange-500/20 px-2 py-1 rounded-lg">
-                        <span className="text-[10px] text-orange-200 font-bold">{accessLabel(tournament)}</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="text-yellow-200 font-bold">{t('tournament_prize_pool_short', { amount: tournament.total_prize_pool || 0 })}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <Users size={12} className="text-neutral-100" />
-                        <span className="text-white font-bold">{tournament.current_participants}/{maxPlayersLabel(tournament)}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <Calendar size={12} className="text-neutral-100" />
-                        <span className="text-neutral-200">{formatPlayUntil(getPlayUntil(tournament))}</span>
-                      </div>
-                    </div>
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h4 className="text-white font-black text-sm mb-1">{tournament.name}</h4>
+                            <p className="text-[10px] text-neutral-200 line-clamp-1">{tournament.description}</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                              tournament.format === 'bracket' ? 'bg-blue-500/30 text-blue-200' : 'bg-purple-500/30 text-purple-200'
+                            }`}>
+                              {formatBadge(tournament.format)}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/30 text-orange-200">
+                              {accessLabel(tournament)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <Users size={12} className="text-neutral-100" />
+                            <span className="text-white font-bold">{tournament.current_participants}/{maxPlayersLabel(tournament)}</span>
+                          </div>
+                          {tournament.play_until && (
+                            <div className="flex items-center gap-1 text-[10px]">
+                              <Calendar size={12} className="text-neutral-100" />
+                              <span className="text-neutral-200">{formatPlayUntil(getPlayUntil(tournament))}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </button>
                   );
@@ -860,7 +971,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
                         {tournament.winner ? (<><span className="text-yellow-400 font-bold">{tournament.winner}</span></>) : '-'}
                       </p>
                     </div>
-                    <Trophy size={16} className="text-yellow-400" />
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                        tournament.format === 'bracket' ? 'bg-blue-500/20 text-blue-300' : 'bg-purple-500/20 text-purple-300'
+                      }`}>
+                        {formatBadge(tournament.format)}
+                      </span>
+                      <Trophy size={16} className="text-yellow-400" />
+                    </div>
                   </div>
                   <div className="flex gap-4">
                     <div className="flex items-center gap-1 text-[10px]">
@@ -890,7 +1008,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament }) => {
         </div>
       </div>
 
-      {/* DELETE CONFIRMATION DIALOG */}
       {renderModals()}
     </Background>
   );

@@ -21,9 +21,11 @@ import AdminView from './views/AdminView';
 import NostrSetupView from './views/NostrSetupView';
 import TournamentsView from './views/TournamentsView';
 import CreateTournamentView from './views/CreateTournamentView';
+import TournamentAdminView from './views/TournamentAdminView';
+import TournamentRegistrationView from './views/TournamentRegistrationView';
 
 // --- SERVICES & UTILS ---
-import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult } from './services/supabase'; 
+import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult, submitBracketMatchResult, fetchMyBracketMatch  } from './services/supabase'; 
 import { useTranslation } from './hooks/useTranslation';
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink, createRefundLink } from './services/lnbits'; 
@@ -42,6 +44,8 @@ export default function App() {
   const [previousView, setPreviousView] = useState('dashboard');
   const [currentGame, setCurrentGame] = useState(null); 
   const [currentTournamentGame, setCurrentTournamentGame] = useState(null);
+  const [tournamentAdminId, setTournamentAdminId] = useState(null);
+  const [tournamentRegistration, setTournamentRegistration] = useState(null);
   const [creationAmount, setCreationAmount] = useState(0); 
   const [isJoining, setIsJoining] = useState(false); 
   const [lobbyFilter, setLobbyFilter] = useState(null);
@@ -146,38 +150,35 @@ export default function App() {
       }
   };
 
-  const handleTournamentCreated = async (tournamentForm) => {
+const handleTournamentCreated = async (tournamentPayload, prizes = [], imageFile = null) => {
     if (!userName) {
       return { ok: false, message: 'LOGIN_REQUIRED' };
     }
 
-    const { data: questionIds, error: questionError } = await fetchQuestionIds(tournamentForm.questionCount || 1);
-    if (questionError || !questionIds || questionIds.length === 0) {
-      return { ok: false, message: 'NO_QUESTIONS' };
+    let questionIds = null;
+    if (tournamentPayload.format === 'highscore' && tournamentPayload.question_count) {
+      const { data: qIds, error: questionError } = await fetchQuestionIds(tournamentPayload.question_count);
+      if (questionError || !qIds || qIds.length === 0) {
+        return { ok: false, message: 'NO_QUESTIONS' };
+      }
+      questionIds = qIds;
     }
 
-    const tournamentPayload = {
-      name: tournamentForm.name,
-      description: tournamentForm.description,
+    const payload = {
+      ...tournamentPayload,
       creator: userName,
-      max_players: tournamentForm.maxPlayers ? parseInt(tournamentForm.maxPlayers, 10) : null,
-      total_prize_pool: tournamentForm.prizePool ? parseInt(tournamentForm.prizePool, 10) : 0,
-      access_level: tournamentForm.accessLevel,
-      question_count: tournamentForm.questionCount,
-      play_until: tournamentForm.playUntil ? new Date(tournamentForm.playUntil).toISOString() : null,
-      contact_info: tournamentForm.contactInfo || null,
       questions: questionIds,
     };
 
-    const { data, error } = await createTournament(tournamentPayload);
+    const { data, error } = await createTournament(payload, prizes);
     if (error || !data) {
       console.error('Fehler beim Erstellen des Turniers:', error);
       return { ok: false, message: error?.message || 'CREATE_FAILED' };
     }
 
-    if (tournamentForm.imageFile) {
+    if (imageFile) {
       try {
-        const { url, path } = await uploadTournamentImage(data.id, tournamentForm.imageFile);
+        const { url, path } = await uploadTournamentImage(data.id, imageFile);
         if (url && path) {
           await updateTournament(data.id, { image_url: url, image_path: path });
         }
@@ -190,8 +191,27 @@ export default function App() {
     return { ok: true };
   };
 
-  const handleStartTournament = async (tournament) => {
+const handleStartTournament = async (tournament) => {
     if (!tournament) return;
+
+    if (tournament.format === 'bracket') {
+      const { data: myMatch, error } = await fetchMyBracketMatch(tournament.id, userName);
+      if (error || !myMatch) {
+        alert('Kein aktives Match gefunden');
+        return;
+      }
+
+      const localizedQuestions = await ensureLocalizedQuestions(myMatch.questions || []);
+      setCurrentTournamentGame({
+        ...tournament,
+        bracketMatchId: myMatch.id,
+        questions: localizedQuestions,
+        mode: 'tournament-bracket',
+      });
+      navigate('tournament-game');
+      return;
+    }
+
     const localizedQuestions = await ensureLocalizedQuestions(tournament.questions || []);
     setCurrentTournamentGame({ ...tournament, questions: localizedQuestions, mode: 'tournament' });
     navigate('tournament-game');
@@ -232,8 +252,25 @@ export default function App() {
     return (parsed || []).filter(isLocalizedQuestion);
   };
 
-  const handleTournamentGameEnd = async (result) => {
+const handleTournamentGameEnd = async (result) => {
     if (!currentTournamentGame || !userName) return;
+
+    if (currentTournamentGame.mode === 'tournament-bracket' && currentTournamentGame.bracketMatchId) {
+      const { data, error } = await submitBracketMatchResult(
+        currentTournamentGame.bracketMatchId,
+        userName,
+        result.score,
+        result.totalTime
+      );
+
+      if (error) {
+        console.error('Bracket result submit error:', error);
+      }
+
+      setCurrentTournamentGame(null);
+      navigate('tournaments');
+      return;
+    }
 
     const { data, error } = await submitTournamentResult(
       currentTournamentGame.id,
@@ -569,6 +606,14 @@ export default function App() {
             onBack={() => navigate('dashboard')}
             onCreateTournament={() => navigate('create-tournament')}
             onStartTournament={handleStartTournament}
+            onOpenAdmin={(id) => {
+              setTournamentAdminId(id);
+              navigate('tournament-admin');
+            }}
+            onOpenRegistration={(id, code) => {
+              setTournamentRegistration({ tournamentId: id, inviteCode: code });
+              navigate('tournament-register');
+            }}
          />
        )}
 
@@ -587,7 +632,30 @@ export default function App() {
          />
        )}
 
-       {/* Tournament payment views removed in simplified flow */}
+       {view === 'tournament-admin' && tournamentAdminId && (
+         <TournamentAdminView
+           tournamentId={tournamentAdminId}
+           onBack={() => {
+             setTournamentAdminId(null);
+             navigate('tournaments');
+           }}
+         />
+       )}
+
+       {view === 'tournament-register' && tournamentRegistration && (
+         <TournamentRegistrationView
+           tournamentId={tournamentRegistration.tournamentId}
+           inviteCode={tournamentRegistration.inviteCode}
+           onBack={() => {
+             setTournamentRegistration(null);
+             navigate('tournaments');
+           }}
+           onTokenReceived={(tournamentId, token) => {
+             setTournamentRegistration(null);
+             navigate('tournaments');
+           }}
+         />
+       )}
        
     </div>
   );
