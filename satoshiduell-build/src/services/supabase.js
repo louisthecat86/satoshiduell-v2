@@ -1662,6 +1662,7 @@ export const finalizeTournamentIfReady = async (tournamentId) => {
   const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
   if (fetchError || !tournament) return { data: null, error: fetchError };
   if (tournament.status === 'finished') return { data: tournament, error: null };
+  if (tournament.format === 'bracket') return { data: tournament, error: null };
   if (!isTournamentExpired(tournament)) return { data: tournament, error: null };
 
   const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
