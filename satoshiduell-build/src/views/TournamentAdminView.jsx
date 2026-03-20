@@ -4,7 +4,8 @@ import Button from '../components/ui/Button';
 import {
   ArrowLeft, Users, Trophy, Crown, RefreshCw, CheckCircle2, XCircle,
   Clock, KeyRound, Copy, Share2, Eye, Gift, Shield, UserCheck, UserX,
-  LayoutGrid, Timer, AlertCircle, ChevronDown, ChevronUp
+  LayoutGrid, Timer, AlertCircle, ChevronDown, ChevronUp,
+  Trash2, Ban, Play, Flag, UserMinus
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
@@ -16,8 +17,65 @@ import {
   unmarkPrizeClaimed,
   createTournamentToken,
   getTournamentImageUrl,
+  disqualifyTournamentPlayer,
+  removeTournamentParticipant,
+  deleteRegistration,
+  startTournamentManually,
+  finalizeTournamentManually,
 } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
+
+// ── Confirm Dialog (inline) ──
+const ConfirmDialog = ({ title, message, confirmLabel, variant, onConfirm, onCancel }) => (
+  <div
+    className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
+    onClick={onCancel}
+  >
+    <div
+      className={`bg-[#1a1a1a] border rounded-2xl p-6 max-w-sm w-full ${
+        variant === 'danger' ? 'border-red-500/30' :
+        variant === 'warning' ? 'border-orange-500/30' :
+        'border-green-500/30'
+      }`}
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        {variant === 'danger' && <AlertCircle size={20} className="text-red-400" />}
+        {variant === 'warning' && <AlertCircle size={20} className="text-orange-400" />}
+        {variant === 'success' && <CheckCircle2 size={20} className="text-green-400" />}
+        <h3 className="text-sm font-black text-white">{title}</h3>
+      </div>
+      <p className="text-xs text-neutral-400 mb-5 leading-relaxed">{message}</p>
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 bg-white/10 text-neutral-400 font-bold py-2.5 rounded-xl hover:bg-white/20 transition-colors text-xs"
+        >
+          Abbrechen
+        </button>
+        <button
+          onClick={onConfirm}
+          className={`flex-1 font-bold py-2.5 rounded-xl transition-colors text-xs ${
+            variant === 'danger' ? 'bg-red-500 text-white hover:bg-red-400' :
+            variant === 'warning' ? 'bg-orange-500 text-black hover:bg-orange-400' :
+            'bg-green-500 text-black hover:bg-green-400'
+          }`}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// ── Toast ──
+const Toast = ({ message, type }) => (
+  <div className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2.5 rounded-xl text-xs font-bold shadow-lg ${
+    type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-black'
+  }`}>
+    {message}
+  </div>
+);
 
 const TournamentAdminView = ({ tournamentId, onBack }) => {
   const { t } = useTranslation();
@@ -25,13 +83,40 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [approveTokenModal, setApproveTokenModal] = useState(null); // { registration, token }
+  const [approveTokenModal, setApproveTokenModal] = useState(null);
   const [expandedSections, setExpandedSections] = useState({
     pending: true,
     approved: true,
     redeemed: false,
     rejected: false,
   });
+
+  // ── NEU: Admin Action State ──
+  const [confirm, setConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const runAdminAction = async (actionFn, successMsg) => {
+    try {
+      const result = await actionFn();
+      if (result?.error) {
+        showToast(result.error.message || 'Fehler', 'error');
+      } else {
+        showToast(successMsg);
+        await loadData();
+      }
+    } catch (err) {
+      showToast(err.message || 'Unbekannter Fehler', 'error');
+    } finally {
+      setActionLoading(null);
+      setConfirm(null);
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -51,14 +136,12 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   }, [loadData]);
 
   const handleApproveAndGenerateToken = async (reg) => {
-    // 1. Registrierung genehmigen
     const { error: approveError } = await approveRegistration(reg.id);
     if (approveError) {
       alert('Fehler beim Genehmigen: ' + (approveError.message || ''));
       return;
     }
 
-    // 2. Token generieren
     const { data: tokenData, error: tokenError, token } = await createTournamentToken(
       tournamentId,
       reg.identity_display,
@@ -72,7 +155,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
       return;
     }
 
-    // 3. Token dem Creator zeigen
     setApproveTokenModal({ registration: reg, token });
     await loadData();
   };
@@ -142,12 +224,79 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
     ? `https://www.satoshiduell.com/t/${tournament.invite_code}`
     : null;
 
+  const isFinished = tournament.status === 'finished';
+  const isRegistration = tournament.status === 'registration';
+  const isActive = tournament.status === 'active';
+  const isBracket = tournament.format === 'bracket';
+  const isHighscore = tournament.format === 'highscore';
+
   const tabs = [
     { id: 'overview', label: 'Übersicht', icon: Eye },
     { id: 'registrations', label: 'Anmeldungen', icon: Users, badge: regStats.pending > 0 ? regStats.pending : null },
-    { id: 'leaderboard', label: tournament.format === 'bracket' ? 'Bracket' : 'Rangliste', icon: Trophy },
+    { id: 'leaderboard', label: isBracket ? 'Bracket' : 'Rangliste', icon: Trophy },
     { id: 'prizes', label: 'Preise', icon: Gift },
   ];
+
+  // ── Helper: Kann ein Teilnehmer disqualifiziert werden? ──
+  const canDisqualify = (entry) => {
+    if (isFinished) return false;
+    const key = (entry.name || entry.key || '').toLowerCase();
+
+    if (isHighscore) {
+      // DQ nur wenn noch nicht gespielt ODER schon gespielt aber noch nicht DQ
+      const isDQ = entry.played && entry.score === 0 && entry.timeMs === 999999999;
+      return !isDQ && (isActive || isRegistration);
+    }
+
+    if (isBracket && isActive) {
+      // Hat ein aktives Match?
+      return bracketMatches.some(
+        m => ['ready', 'active'].includes(m.status)
+          && ((m.player1 || '').toLowerCase() === key || (m.player2 || '').toLowerCase() === key)
+      );
+    }
+
+    return false;
+  };
+
+  // ── Helper: Kann ein Teilnehmer entfernt werden? ──
+  const canRemove = (entry) => {
+    if (isFinished) return false;
+    const key = (entry.name || entry.key || '').toLowerCase();
+
+    if (isRegistration) return true;
+    if (isHighscore && isActive && !entry.played) return true;
+    // Bracket: Nur in registration-Phase
+    return false;
+  };
+
+  // ── Helper: Bracket-Info für einen Spieler ──
+  const getBracketInfo = (playerKey) => {
+    if (!isBracket || bracketMatches.length === 0) return null;
+
+    const activeMatch = bracketMatches.find(
+      m => ['ready', 'active'].includes(m.status)
+        && ((m.player1 || '').toLowerCase() === playerKey || (m.player2 || '').toLowerCase() === playerKey)
+    );
+
+    const lostMatch = bracketMatches.find(
+      m => m.status === 'finished'
+        && m.winner
+        && m.winner.toLowerCase() !== playerKey
+        && ((m.player1 || '').toLowerCase() === playerKey || (m.player2 || '').toLowerCase() === playerKey)
+    );
+
+    const isEliminated = !!lostMatch && !activeMatch;
+
+    let opponent = null;
+    if (activeMatch) {
+      opponent = (activeMatch.player1 || '').toLowerCase() === playerKey
+        ? activeMatch.player2
+        : activeMatch.player1;
+    }
+
+    return { activeMatch, isEliminated, opponent };
+  };
 
   const renderRegistrationRow = (reg) => (
     <div
@@ -209,6 +358,53 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
             <UserX size={10} className="inline mr-1" />Abgelehnt
           </span>
         )}
+
+        {/* NEU: Registrierung löschen */}
+        {!isFinished && ['pending', 'approved', 'rejected', 'removed'].includes(reg.status) && (
+          <button
+            onClick={() => setConfirm({
+              title: 'Registrierung löschen?',
+              message: `Die Registrierung von ${reg.identity_display || reg.identity_value} wird gelöscht und der Platz freigegeben.`,
+              confirmLabel: 'Löschen',
+              variant: 'danger',
+              onConfirm: () => {
+                setActionLoading(`del-reg-${reg.id}`);
+                runAdminAction(
+                  () => deleteRegistration(reg.id),
+                  'Registrierung gelöscht'
+                );
+              },
+            })}
+            disabled={!!actionLoading}
+            className="bg-red-500/10 p-2 rounded-lg hover:bg-red-500/20 transition-colors"
+            title="Registrierung löschen"
+          >
+            <Trash2 size={14} className="text-red-400" />
+          </button>
+        )}
+        {/* Redeemed: Löschen entfernt auch aus Turnier */}
+        {!isFinished && reg.status === 'redeemed' && (
+          <button
+            onClick={() => setConfirm({
+              title: 'Registrierung + Teilnehmer löschen?',
+              message: `${reg.identity_display} ist bereits beigetreten. Durch das Löschen wird der Spieler "${reg.player_username}" auch aus dem Turnier entfernt.`,
+              confirmLabel: 'Löschen & Entfernen',
+              variant: 'danger',
+              onConfirm: () => {
+                setActionLoading(`del-reg-${reg.id}`);
+                runAdminAction(
+                  () => deleteRegistration(reg.id),
+                  'Registrierung gelöscht & Spieler entfernt'
+                );
+              },
+            })}
+            disabled={!!actionLoading}
+            className="bg-red-500/10 p-2 rounded-lg hover:bg-red-500/20 transition-colors"
+            title="Registrierung + Teilnehmer löschen"
+          >
+            <Trash2 size={14} className="text-red-400" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -237,6 +433,20 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   return (
     <Background>
       <div className="flex flex-col h-full w-full max-w-md mx-auto relative">
+        {/* Toast */}
+        {toast && <Toast message={toast.message} type={toast.type} />}
+        {/* Confirm Dialog */}
+        {confirm && (
+          <ConfirmDialog
+            title={confirm.title}
+            message={confirm.message}
+            confirmLabel={confirm.confirmLabel}
+            variant={confirm.variant}
+            onConfirm={confirm.onConfirm}
+            onCancel={() => setConfirm(null)}
+          />
+        )}
+
         {/* Header */}
         <div className="p-4 pb-2 flex items-center gap-3">
           <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
@@ -251,8 +461,8 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
               {tournament.status === 'registration' ? 'Registrierung offen' :
                tournament.status === 'active' ? 'Turnier läuft' :
                tournament.status === 'finished' ? 'Beendet' : tournament.status}
-              {tournament.format === 'bracket' && ' • Bracket'}
-              {tournament.format === 'highscore' && ' • Highscore'}
+              {isBracket && ' • Bracket'}
+              {isHighscore && ' • Highscore'}
             </p>
           </div>
           <button onClick={loadData} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
@@ -292,6 +502,79 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
           {/* ===== OVERVIEW TAB ===== */}
           {activeTab === 'overview' && (
             <div className="space-y-4">
+
+              {/* ── NEU: Turnier-Steuerung ── */}
+              {!isFinished && (
+                <div className="bg-[#161616] border border-purple-500/20 rounded-xl p-4">
+                  <h3 className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-3">
+                    ⚙️ Turnier-Steuerung
+                  </h3>
+                  <div className="flex gap-2 flex-wrap">
+                    {/* Manuell starten */}
+                    {isRegistration && (
+                      <button
+                        disabled={!!actionLoading || gameStats.totalParticipants < 2}
+                        onClick={() => setConfirm({
+                          title: 'Turnier jetzt starten?',
+                          message: `Das Turnier wird mit ${gameStats.totalParticipants} Teilnehmer${gameStats.totalParticipants !== 1 ? 'n' : ''} gestartet. Die Registrierung wird geschlossen.`,
+                          confirmLabel: 'Jetzt starten',
+                          variant: 'success',
+                          onConfirm: () => {
+                            setActionLoading('start');
+                            runAdminAction(
+                              () => startTournamentManually(tournament.id),
+                              'Turnier gestartet!'
+                            );
+                          },
+                        })}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          gameStats.totalParticipants < 2
+                            ? 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                            : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                        }`}
+                      >
+                        <Play size={14} />
+                        Manuell starten
+                      </button>
+                    )}
+
+                    {/* Manuell beenden (nur Highscore) */}
+                    {isActive && isHighscore && (
+                      <button
+                        disabled={!!actionLoading}
+                        onClick={() => {
+                          const played = gameStats.played;
+                          const notPlayed = gameStats.totalParticipants - played;
+                          setConfirm({
+                            title: 'Turnier jetzt beenden?',
+                            message: `${played} von ${gameStats.totalParticipants} haben gespielt.${notPlayed > 0 ? ` ${notPlayed} Spieler haben NICHT gespielt und werden nicht gewertet.` : ''} Das Ergebnis wird sofort festgelegt.`,
+                            confirmLabel: 'Jetzt beenden',
+                            variant: 'warning',
+                            onConfirm: () => {
+                              setActionLoading('finalize');
+                              runAdminAction(
+                                () => finalizeTournamentManually(tournament.id),
+                                'Turnier beendet!'
+                              );
+                            },
+                          });
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 transition-colors"
+                      >
+                        <Flag size={14} />
+                        Manuell beenden
+                      </button>
+                    )}
+                  </div>
+
+                  {isRegistration && gameStats.totalParticipants < 2 && (
+                    <p className="text-[10px] text-neutral-600 mt-2">
+                      Mindestens 2 Teilnehmer nötig zum Starten.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Quick Stats */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-[#161616] border border-white/5 rounded-xl p-3 text-center">
@@ -358,7 +641,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between">
                     <span className="text-neutral-500">Format</span>
-                    <span className="text-white font-bold">{tournament.format === 'highscore' ? 'Highscore' : 'Bracket'}</span>
+                    <span className="text-white font-bold">{isHighscore ? 'Highscore' : 'Bracket'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-neutral-500">Zugang</span>
@@ -366,7 +649,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                       {tournament.access_level === 'public' ? 'Öffentlich' : tournament.access_level === 'invite' ? 'Einladungslink' : 'Token'}
                     </span>
                   </div>
-                  {tournament.format === 'highscore' && (
+                  {isHighscore && (
                     <div className="flex justify-between">
                       <span className="text-neutral-500">Fragen</span>
                       <span className="text-white font-bold">{tournament.question_count}</span>
@@ -463,12 +746,13 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
           {/* ===== LEADERBOARD / BRACKET TAB ===== */}
           {activeTab === 'leaderboard' && (
             <div>
-              {tournament.format === 'highscore' && (
+              {isHighscore && (
                 <div className="space-y-2">
                   {ranked.length === 0 ? (
                     <div className="text-center text-neutral-500 text-sm py-10">Noch keine Ergebnisse</div>
                   ) : ranked.map((entry, index) => {
                     const isWinner = tournament.winner && entry.name.toLowerCase() === tournament.winner.toLowerCase();
+                    const isDQ = entry.played && entry.score === 0 && entry.timeMs === 999999999;
                     const reg = registrations.find(r =>
                       r.player_username && r.player_username.toLowerCase() === entry.name.toLowerCase()
                     );
@@ -477,6 +761,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                       <div
                         key={entry.key}
                         className={`flex items-center justify-between rounded-xl px-3 py-3 border ${
+                          isDQ ? 'border-red-500/20 bg-red-500/5 opacity-60' :
                           isWinner ? 'border-yellow-500/40 bg-yellow-500/10' : 'border-white/5 bg-white/5'
                         }`}
                       >
@@ -486,6 +771,11 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-bold text-white truncate">{entry.name}</span>
                               {isWinner && <Crown size={12} className="text-yellow-400 flex-shrink-0" />}
+                              {isDQ && (
+                                <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">
+                                  DQ
+                                </span>
+                              )}
                             </div>
                             {reg && (
                               <div className="text-[10px] text-neutral-500">
@@ -494,15 +784,67 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-neutral-300 flex-shrink-0">
-                          <span className={entry.played ? 'text-white font-bold' : 'text-neutral-600'}>
-                            {entry.played ? `${entry.score} Pkt` : '—'}
-                          </span>
-                          <span className="text-neutral-500 w-16 text-right">
-                            {entry.played && entry.timeMs != null
-                              ? formatTime(Math.max(0, entry.timeMs) / 1000)
-                              : entry.played ? '—' : 'Ausstehend'}
-                          </span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-4 text-xs text-neutral-300">
+                            <span className={entry.played ? (isDQ ? 'text-red-400' : 'text-white font-bold') : 'text-neutral-600'}>
+                              {entry.played ? (isDQ ? 'DQ' : `${entry.score} Pkt`) : '—'}
+                            </span>
+                            <span className="text-neutral-500 w-16 text-right">
+                              {entry.played && entry.timeMs != null && !isDQ
+                                ? formatTime(Math.max(0, entry.timeMs) / 1000)
+                                : entry.played ? '—' : 'Ausstehend'}
+                            </span>
+                          </div>
+
+                          {/* ── Admin-Aktionen ── */}
+                          {!isFinished && (canDisqualify(entry) || canRemove(entry)) && (
+                            <div className="flex items-center gap-1 ml-2">
+                              {canDisqualify(entry) && !isDQ && (
+                                <button
+                                  disabled={!!actionLoading}
+                                  onClick={() => setConfirm({
+                                    title: `${entry.name} disqualifizieren?`,
+                                    message: `${entry.name} wird mit Score 0 gewertet und landet ganz unten in der Rangliste. Falls dadurch alle gespielt haben, wird das Turnier automatisch beendet.`,
+                                    confirmLabel: 'Disqualifizieren',
+                                    variant: 'danger',
+                                    onConfirm: () => {
+                                      setActionLoading(`dq-${entry.key}`);
+                                      runAdminAction(
+                                        () => disqualifyTournamentPlayer(tournament.id, entry.name),
+                                        `${entry.name} disqualifiziert`
+                                      );
+                                    },
+                                  })}
+                                  className="bg-red-500/10 p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
+                                  title="Disqualifizieren"
+                                >
+                                  <Ban size={12} className="text-red-400" />
+                                </button>
+                              )}
+                              {canRemove(entry) && (
+                                <button
+                                  disabled={!!actionLoading}
+                                  onClick={() => setConfirm({
+                                    title: `${entry.name} entfernen?`,
+                                    message: `${entry.name} wird aus dem Turnier entfernt. Der Platz wird wieder frei.`,
+                                    confirmLabel: 'Entfernen',
+                                    variant: 'danger',
+                                    onConfirm: () => {
+                                      setActionLoading(`rm-${entry.key}`);
+                                      runAdminAction(
+                                        () => removeTournamentParticipant(tournament.id, entry.name),
+                                        `${entry.name} entfernt`
+                                      );
+                                    },
+                                  })}
+                                  className="bg-white/5 p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                                  title="Aus Turnier entfernen"
+                                >
+                                  <UserMinus size={12} className="text-neutral-400" />
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -510,7 +852,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                 </div>
               )}
 
-              {tournament.format === 'bracket' && (
+              {isBracket && (
                 <div className="space-y-4">
                   {bracketMatches.length === 0 ? (
                     <div className="text-center text-neutral-500 text-sm py-10">
@@ -535,37 +877,92 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                             {roundLabels[roundName] || roundName}
                           </h4>
                           <div className="space-y-2">
-                            {matches.map(match => (
-                              <div
-                                key={match.id}
-                                className={`border rounded-xl p-3 ${
-                                  match.status === 'finished' ? 'border-white/5 bg-white/5 opacity-60' :
-                                  match.status === 'ready' ? 'border-green-500/30 bg-green-500/5' :
-                                  match.status === 'active' ? 'border-yellow-500/30 bg-yellow-500/5' :
-                                  'border-white/5 bg-white/5 opacity-40'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex-1">
-                                    <div className={`text-xs font-bold ${match.winner === match.player1 ? 'text-yellow-400' : 'text-white'}`}>
-                                      {match.player1 || '???'}
-                                      {match.player1_score !== null && <span className="text-neutral-400 font-normal ml-2">{match.player1_score} Pkt</span>}
+                            {matches.map(match => {
+                              // ── NEU: DQ-Buttons für Bracket-Matches ──
+                              const matchIsPlayable = ['ready', 'active'].includes(match.status);
+                              const canDqP1 = matchIsPlayable && match.player1 && match.player2 && !isFinished;
+                              const canDqP2 = matchIsPlayable && match.player1 && match.player2 && !isFinished;
+
+                              return (
+                                <div
+                                  key={match.id}
+                                  className={`border rounded-xl p-3 ${
+                                    match.status === 'finished' ? 'border-white/5 bg-white/5 opacity-60' :
+                                    match.status === 'ready' ? 'border-green-500/30 bg-green-500/5' :
+                                    match.status === 'active' ? 'border-yellow-500/30 bg-yellow-500/5' :
+                                    'border-white/5 bg-white/5 opacity-40'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-1">
+                                        <span className={`text-xs font-bold ${match.winner === match.player1 ? 'text-yellow-400' : 'text-white'}`}>
+                                          {match.player1 || '???'}
+                                        </span>
+                                        {match.player1_score !== null && <span className="text-neutral-400 text-[10px] ml-1">{match.player1_score} Pkt</span>}
+                                        {canDqP1 && (
+                                          <button
+                                            disabled={!!actionLoading}
+                                            onClick={() => setConfirm({
+                                              title: `${match.player1} disqualifizieren?`,
+                                              message: `${match.player1} wird disqualifiziert. ${match.player2} gewinnt automatisch und das Bracket geht weiter.`,
+                                              confirmLabel: 'Disqualifizieren',
+                                              variant: 'danger',
+                                              onConfirm: () => {
+                                                setActionLoading(`dq-bracket-${match.player1}`);
+                                                runAdminAction(
+                                                  () => disqualifyTournamentPlayer(tournament.id, match.player1),
+                                                  `${match.player1} disqualifiziert`
+                                                );
+                                              },
+                                            })}
+                                            className="bg-red-500/10 p-1 rounded hover:bg-red-500/20 transition-colors ml-1"
+                                            title={`${match.player1} disqualifizieren`}
+                                          >
+                                            <Ban size={10} className="text-red-400" />
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-neutral-600 my-0.5">vs</div>
+                                      <div className="flex items-center gap-1">
+                                        <span className={`text-xs font-bold ${match.winner === match.player2 ? 'text-yellow-400' : 'text-white'}`}>
+                                          {match.player2 || '???'}
+                                        </span>
+                                        {match.player2_score !== null && <span className="text-neutral-400 text-[10px] ml-1">{match.player2_score} Pkt</span>}
+                                        {canDqP2 && (
+                                          <button
+                                            disabled={!!actionLoading}
+                                            onClick={() => setConfirm({
+                                              title: `${match.player2} disqualifizieren?`,
+                                              message: `${match.player2} wird disqualifiziert. ${match.player1} gewinnt automatisch und das Bracket geht weiter.`,
+                                              confirmLabel: 'Disqualifizieren',
+                                              variant: 'danger',
+                                              onConfirm: () => {
+                                                setActionLoading(`dq-bracket-${match.player2}`);
+                                                runAdminAction(
+                                                  () => disqualifyTournamentPlayer(tournament.id, match.player2),
+                                                  `${match.player2} disqualifiziert`
+                                                );
+                                              },
+                                            })}
+                                            className="bg-red-500/10 p-1 rounded hover:bg-red-500/20 transition-colors ml-1"
+                                            title={`${match.player2} disqualifizieren`}
+                                          >
+                                            <Ban size={10} className="text-red-400" />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="text-[10px] text-neutral-600 my-0.5">vs</div>
-                                    <div className={`text-xs font-bold ${match.winner === match.player2 ? 'text-yellow-400' : 'text-white'}`}>
-                                      {match.player2 || '???'}
-                                      {match.player2_score !== null && <span className="text-neutral-400 font-normal ml-2">{match.player2_score} Pkt</span>}
+                                    <div className="text-right">
+                                      {match.status === 'finished' && match.winner && <Crown size={16} className="text-yellow-400" />}
+                                      {match.status === 'ready' && <span className="text-[9px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">Bereit</span>}
+                                      {match.status === 'active' && <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full font-bold">Läuft</span>}
+                                      {match.status === 'pending' && <span className="text-[9px] bg-white/10 text-neutral-500 px-2 py-1 rounded-full font-bold">Wartet</span>}
                                     </div>
-                                  </div>
-                                  <div className="text-right">
-                                    {match.status === 'finished' && match.winner && <Crown size={16} className="text-yellow-400" />}
-                                    {match.status === 'ready' && <span className="text-[9px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">Bereit</span>}
-                                    {match.status === 'active' && <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full font-bold">Läuft</span>}
-                                    {match.status === 'pending' && <span className="text-[9px] bg-white/10 text-neutral-500 px-2 py-1 rounded-full font-bold">Wartet</span>}
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ));

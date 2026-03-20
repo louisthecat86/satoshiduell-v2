@@ -2267,3 +2267,326 @@ export const fetchWinningTournamentsForUser = async (username) => {
 
   return { data, error };
 };
+// ============================================================
+// TOURNAMENT ADMIN: DISQUALIFY / REMOVE / CLEANUP
+// ============================================================
+// → An das ENDE von supabase.js anhängen.
+// Alle benötigten Helpers (buildRankedList, assignPrizesToWinners,
+// advanceBracketWinner, updateTournament, fetchTournamentById,
+// generateBracketMatches, fetchQuestionIds, deleteTournamentImage,
+// supabase, toLower) sind bereits in supabase.js definiert.
+// ============================================================
+
+/**
+ * Spieler disqualifizieren.
+ * - Highscore: Score = 0, Zeit = MAX → rankt ganz unten, Finalisierung wird geprüft
+ * - Bracket: Gegner gewinnt das aktuelle Match automatisch → Bracket läuft weiter
+ */
+export const disqualifyTournamentPlayer = async (tournamentId, username) => {
+  const normalizedName = (username || '').trim().toLowerCase();
+  if (!normalizedName) return { data: null, error: new Error('Kein Spielername') };
+
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  // ── HIGHSCORE ──
+  if (tournament.format === 'highscore') {
+    const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+    const normalizedParticipants = participants.map(p => (p || '').toLowerCase());
+
+    if (!normalizedParticipants.includes(normalizedName)) {
+      return { data: null, error: new Error('Spieler nicht im Turnier') };
+    }
+
+    const scores = { ...(tournament.participant_scores || {}) };
+    const times = { ...(tournament.participant_times || {}) };
+
+    // DQ: Score 0, Zeit maximal → landet immer ganz unten
+    scores[normalizedName] = 0;
+    times[normalizedName] = 999999999;
+
+    const updates = {
+      participant_scores: scores,
+      participant_times: times,
+    };
+
+    // Prüfen ob jetzt alle gespielt haben → finalisieren
+    const allPlayed = normalizedParticipants.every(p => scores[p] !== undefined && scores[p] !== null);
+    const hasCap = tournament.max_players && tournament.max_players > 0;
+    const isFull = hasCap ? normalizedParticipants.length >= tournament.max_players : false;
+    const isExpired = tournament.play_until && new Date(tournament.play_until) <= new Date();
+
+    if (allPlayed && ((hasCap && isFull) || isExpired) && tournament.status !== 'finished') {
+      const ranked = buildRankedList(participants, scores, times);
+      if (ranked.length > 0 && ranked[0].played) {
+        const winnerName = ranked[0].name;
+        const { data: winnerProfile } = await supabase
+          .from('profiles')
+          .select('npub')
+          .ilike('username', winnerName)
+          .maybeSingle();
+
+        updates.status = 'finished';
+        updates.finished_at = new Date().toISOString();
+        updates.winner = winnerName;
+        updates.winner_npub = winnerProfile?.npub || null;
+      }
+    }
+
+    const { data, error } = await updateTournament(tournamentId, updates);
+
+    if (data?.status === 'finished') {
+      const ranked = buildRankedList(
+        data.participants || [],
+        data.participant_scores || {},
+        data.participant_times || {}
+      );
+      await assignPrizesToWinners(tournamentId, ranked);
+    }
+
+    return { data, error };
+  }
+
+  // ── BRACKET ──
+  if (tournament.format === 'bracket') {
+    const { data: match, error: matchError } = await supabase
+      .from('tournament_bracket_matches')
+      .select('*')
+      .eq('tournament_id', tournamentId)
+      .in('status', ['ready', 'active'])
+      .or(`player1.ilike.${normalizedName},player2.ilike.${normalizedName}`)
+      .maybeSingle();
+
+    if (matchError) return { data: null, error: matchError };
+
+    if (!match) {
+      return { data: null, error: new Error('Kein aktives Match für diesen Spieler') };
+    }
+
+    const isP1 = (match.player1 || '').toLowerCase() === normalizedName;
+    const winner = isP1 ? match.player2 : match.player1;
+
+    if (!winner) {
+      return { data: null, error: new Error('Kein Gegner vorhanden') };
+    }
+
+    const matchUpdates = {
+      status: 'finished',
+      winner: winner,
+      finished_at: new Date().toISOString(),
+    };
+
+    if (isP1) {
+      matchUpdates.player1_score = 0;
+      matchUpdates.player1_time_ms = 999999999;
+      if (match.player2_score === null) {
+        matchUpdates.player2_score = 999;
+        matchUpdates.player2_time_ms = 0;
+      }
+    } else {
+      matchUpdates.player2_score = 0;
+      matchUpdates.player2_time_ms = 999999999;
+      if (match.player1_score === null) {
+        matchUpdates.player1_score = 999;
+        matchUpdates.player1_time_ms = 0;
+      }
+    }
+
+    const { data: updatedMatch, error: updateError } = await supabase
+      .from('tournament_bracket_matches')
+      .update(matchUpdates)
+      .eq('id', match.id)
+      .select()
+      .single();
+
+    if (updateError) return { data: null, error: updateError };
+
+    if (updatedMatch?.status === 'finished' && updatedMatch?.winner) {
+      await advanceBracketWinner(updatedMatch);
+    }
+
+    return { data: updatedMatch, error: null };
+  }
+
+  return { data: null, error: new Error('Unbekanntes Turnier-Format') };
+};
+
+/**
+ * Teilnehmer aus Turnier entfernen.
+ * Entfernt aus participants-Array, löscht Scores/Times, passt current_participants an.
+ * Bei Bracket: NUR möglich solange status = 'registration' (vor Bracket-Generierung).
+ */
+export const removeTournamentParticipant = async (tournamentId, username) => {
+  const normalizedName = (username || '').trim().toLowerCase();
+  if (!normalizedName) return { data: null, error: new Error('Kein Spielername') };
+
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  if (tournament.status === 'finished') {
+    return { data: null, error: new Error('Turnier ist bereits beendet') };
+  }
+
+  if (tournament.format === 'bracket' && tournament.status !== 'registration') {
+    return { data: null, error: new Error('Bracket bereits gestartet — nutze Disqualifizierung') };
+  }
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const updatedParticipants = participants.filter(
+    p => (p || '').toLowerCase() !== normalizedName
+  );
+
+  if (updatedParticipants.length === participants.length) {
+    return { data: null, error: new Error('Spieler nicht im Turnier') };
+  }
+
+  const scores = { ...(tournament.participant_scores || {}) };
+  const times = { ...(tournament.participant_times || {}) };
+  delete scores[normalizedName];
+  delete times[normalizedName];
+
+  const updates = {
+    participants: updatedParticipants,
+    current_participants: updatedParticipants.length,
+    participant_scores: scores,
+    participant_times: times,
+  };
+
+  if (tournament.status === 'active'
+      && tournament.format === 'highscore'
+      && tournament.max_players
+      && updatedParticipants.length < tournament.max_players) {
+    updates.status = 'registration';
+    updates.started_at = null;
+  }
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+
+  // Zugehörige Registration aufräumen
+  await supabase
+    .from('tournament_registrations')
+    .update({ status: 'removed', player_username: null })
+    .eq('tournament_id', tournamentId)
+    .ilike('player_username', normalizedName);
+
+  return { data, error };
+};
+
+/**
+ * Registrierung löschen (Platz freigeben).
+ * Falls der Spieler bereits beigetreten ist (status = 'redeemed'),
+ * wird er auch aus dem Turnier entfernt.
+ */
+export const deleteRegistration = async (registrationId) => {
+  const { data: reg, error: fetchError } = await supabase
+    .from('tournament_registrations')
+    .select('*')
+    .eq('id', registrationId)
+    .single();
+
+  if (fetchError || !reg) return { data: null, error: fetchError };
+
+  if (reg.status === 'redeemed' && reg.player_username) {
+    const removeResult = await removeTournamentParticipant(reg.tournament_id, reg.player_username);
+    if (removeResult.error) {
+      console.warn('Konnte Teilnehmer nicht entfernen:', removeResult.error.message);
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('tournament_registrations')
+    .delete()
+    .eq('id', registrationId)
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+/**
+ * Admin: Turnier manuell starten (z.B. wenn kein max_players gesetzt).
+ */
+export const startTournamentManually = async (tournamentId) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  if (tournament.status !== 'registration') {
+    return { data: null, error: new Error('Turnier ist nicht in der Registrierungsphase') };
+  }
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  if (participants.length < 2) {
+    return { data: null, error: new Error('Mindestens 2 Teilnehmer nötig') };
+  }
+
+  const updates = {
+    status: 'active',
+    started_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+
+  if (data?.format === 'bracket') {
+    const { data: existingMatches } = await supabase
+      .from('tournament_bracket_matches')
+      .select('id')
+      .eq('tournament_id', tournamentId)
+      .limit(1);
+
+    if (!existingMatches || existingMatches.length === 0) {
+      await generateBracketMatches(data);
+    }
+  }
+
+  return { data, error };
+};
+
+/**
+ * Admin: Turnier manuell beenden (nur Highscore).
+ * Beendet das Turnier sofort mit aktuellem Stand.
+ */
+export const finalizeTournamentManually = async (tournamentId) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  if (tournament.status === 'finished') {
+    return { data: tournament, error: null };
+  }
+
+  if (tournament.format === 'bracket') {
+    return { data: null, error: new Error('Bracket-Turniere können nicht manuell finalisiert werden') };
+  }
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const scores = tournament.participant_scores || {};
+  const times = tournament.participant_times || {};
+  const ranked = buildRankedList(participants, scores, times);
+
+  const winnerName = ranked.length > 0 && ranked[0].played ? ranked[0].name : null;
+  let winnerNpub = null;
+  if (winnerName) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('npub')
+      .ilike('username', winnerName)
+      .maybeSingle();
+    winnerNpub = profile?.npub || null;
+  }
+
+  const { data, error } = await updateTournament(tournamentId, {
+    status: 'finished',
+    finished_at: new Date().toISOString(),
+    winner: winnerName,
+    winner_npub: winnerNpub,
+  });
+
+  if (data) {
+    await assignPrizesToWinners(tournamentId, ranked);
+    if (data.image_path) {
+      await deleteTournamentImage(data.image_path);
+      await updateTournament(tournamentId, { image_url: null, image_path: null });
+    }
+  }
+
+  return { data, error };
+};
