@@ -1346,7 +1346,7 @@ const normalizeIdentity = (type, value) => {
   return normalized;
 };
 
-export const registerForTournament = async (tournamentId, identityType, identityValue, identityVerified = false) => {
+export const registerForTournament = async (tournamentId, identityType, identityValue, identityVerified = false, playerUsername = null) => {
   const normalized = normalizeIdentity(identityType, identityValue);
   if (!normalized) return { data: null, error: new Error('Identität fehlt') };
 
@@ -1393,6 +1393,7 @@ export const registerForTournament = async (tournamentId, identityType, identity
       identity_hash: identHash,
       token_hash: null,
       status: 'pending',
+      player_username: playerUsername,
     }])
     .select()
     .single();
@@ -2087,6 +2088,20 @@ const assignPrizesToWinners = async (tournamentId, rankedList = []) => {
       })
       .eq('id', prize.id);
   }
+};
+
+// ============================================================
+// MY TOURNAMENT REGISTRATIONS
+// ============================================================
+
+export const fetchMyTournamentRegistrations = async (username) => {
+  if (!username) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from('tournament_registrations')
+    .select('*, tournaments:tournament_id(*)')
+    .ilike('player_username', username)
+    .order('registered_at', { ascending: false });
+  return { data: data || [], error };
 };
 
 // ============================================================
