@@ -261,12 +261,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {(amCreator || user?.is_admin) && onOpenAdmin && (
-                <button onClick={() => onOpenAdmin(selectedTournament.id)}
-                  className="bg-purple-500/20 p-2 rounded-xl hover:bg-purple-500/30 transition-colors border border-purple-500/50">
-                  <Shield className="text-purple-400" size={20} />
-                </button>
-              )}
+              
               {canDeleteTournament(selectedTournament) && (
                 <button onClick={() => setDeleteConfirm({ id: selectedTournament.id, name: selectedTournament.name })}
                   className="bg-red-500/20 p-2 rounded-xl hover:bg-red-500/30 transition-colors border border-red-500/50">
@@ -496,7 +491,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   // ============================================
   const activeTournaments = visibleTournaments.filter(t => t.status === 'active');
   const registrationTournaments = visibleTournaments.filter(t => t.status === 'registration');
-  const finishedTournaments = visibleTournaments.filter(t => t.status === 'finished');
+  const finishedTournaments = visibleTournaments.filter(t => t.status === 'finished').slice(0, 10);
 
   const RegistrationBadge = ({ registration }) => {
     if (!registration) return null;
