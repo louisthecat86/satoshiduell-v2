@@ -3,7 +3,7 @@ import Background from '../components/ui/Background';
 import { ArrowLeft, Shield, Copy, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
-import { registerForTournament, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
+import { registerForTournament, redeemRegistrationToken, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
 
 const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenReceived }) => {
   const { t } = useTranslation();
@@ -110,6 +110,20 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
     }
 
     if (token) {
+      // Auto-Join: Token direkt einlösen
+      if (user?.username) {
+        const { data: joinData, error: joinError } = await redeemRegistrationToken(
+          tournament.id, token, user.username
+        );
+        if (!joinError && joinData) {
+          setStep('success');
+          setTimeout(() => {
+            if (onTokenReceived) onTokenReceived(tournament.id, token);
+          }, 1500);
+          return;
+        }
+      }
+      // Fallback: Token anzeigen falls Auto-Join fehlschlägt
       setResultToken(token);
       setStep('result');
     } else if (data?.status === 'pending') {
@@ -308,6 +322,19 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                   Zum Turnier
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ===== STEP: AUTO-JOIN SUCCESS ===== */}
+          {step === 'success' && (
+            <div className="space-y-4 animate-in fade-in text-center">
+              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-green-500">
+                <CheckCircle2 size={40} className="text-green-400" />
+              </div>
+              <h3 className="text-xl font-black text-white">Du bist dabei!</h3>
+              <p className="text-sm text-neutral-400">
+                Du wurdest erfolgreich zum Turnier hinzugefügt.
+              </p>
             </div>
           )}
 
