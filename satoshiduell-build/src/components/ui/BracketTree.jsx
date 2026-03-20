@@ -49,9 +49,9 @@ const BracketTree = ({ matches, currentUser }) => {
   };
 
   // Initial auf aktive Runde setzen
-  useState(() => {
+  React.useEffect(() => {
     setActiveRoundIdx(findActiveRound());
-  });
+  }, [matches]);
 
   const currentRound = sortedRounds[activeRoundIdx];
   const currentMatches = roundsMap[currentRound] || [];
