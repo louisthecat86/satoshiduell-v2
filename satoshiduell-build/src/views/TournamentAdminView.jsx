@@ -347,16 +347,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                     >
                       <Share2 size={12} /> Teilen
                     </button>
-                  </div>
-                  <div className="mt-3">
-                    <p className="text-[10px] text-neutral-400 font-bold mb-1">Einladungscode (zum manuellen Eingeben):</p>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-lg text-white font-bold">{tournament.invite_code}</span>
-                      <button onClick={() => copyToClipboard(tournament.invite_code)} className="text-purple-300 hover:text-white">
-                        <Copy size={14} />
-                      </button>
-                    </div>
-                  </div>
+                  </div>       
                 </div>
               )}
 

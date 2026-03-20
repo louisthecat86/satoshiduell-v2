@@ -93,7 +93,8 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       tournament.id,
       identityType,
       identityValue.trim(),
-      isVerified
+      isVerified,
+      user?.username || null
     );
 
     setSubmitting(false);
