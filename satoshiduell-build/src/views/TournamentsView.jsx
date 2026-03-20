@@ -72,7 +72,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     });
   }, [selectedTournament?.id]);
 
-  const visibleTournaments = tournaments.filter(t => ['registration', 'active', 'finished'].includes(t.status));
+  const visibleTournaments = tournaments.filter(t => ['registration', 'active', 'finished', 'archived'].includes(t.status));
   const getMyRegistration = (tid) => myRegistrations.find(r => r.tournament_id === tid);
   const canDeleteTournament = (t) => { if (!user) return false; if (user.is_admin) return true; return t.creator?.toLowerCase() === user.username?.toLowerCase(); };
   const isCreator = (t) => user && t && t.creator?.toLowerCase() === user.username?.toLowerCase();
@@ -127,7 +127,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     if (onStartTournament) onStartTournament(tournament);
   };
 
-  const statusLabel = (s) => ({ registration: 'Anmeldung offen', active: 'Läuft', finished: 'Beendet' }[s] || s);
+  const statusLabel = (s) => ({ registration: 'Anmeldung offen', active: 'Läuft', finished: 'Beendet', archived: '📦 Archiviert' }[s] || s);
   const formatBadge = (f) => f === 'bracket' ? 'Bracket' : 'Highscore';
   const formatPlayUntil = (v) => { if (!v) return '-'; const d = new Date(v); return isNaN(d.getTime()) ? '-' : d.toLocaleString(); };
   const questionCount = (t) => t?.question_count || 0;
@@ -612,7 +612,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   // ============================================
   const activeTournaments = visibleTournaments.filter(t => t.status === 'active');
   const registrationTournaments = visibleTournaments.filter(t => t.status === 'registration');
-  const finishedTournaments = visibleTournaments.filter(t => t.status === 'finished').slice(0, 10);
+  const finishedTournaments = visibleTournaments.filter(t => t.status === 'finished' || t.status === 'archived').slice(0, 10);
 
   const RegistrationBadge = ({ registration }) => {
     if (!registration) return null;
