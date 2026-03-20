@@ -1,6 +1,6 @@
-import { formatTime } from '../../utils/formatters';
-import { ChevronLeft, ChevronRight, Crown } from 'lucide-react';
 import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, Crown } from 'lucide-react';
+import { formatTime } from '../../utils/formatters';
 
 const ROUND_ORDER = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
 const ROUND_LABELS = {
@@ -17,7 +17,6 @@ const fmtTime = (ms) => {
 };
 
 const BracketTree = ({ matches, currentUser }) => {
-  const [activeRoundIdx, setActiveRoundIdx] = useState(0);
 
   if (!matches || matches.length === 0) {
     return (
@@ -27,7 +26,6 @@ const BracketTree = ({ matches, currentUser }) => {
     );
   }
 
-  // Runden sortiert aufbauen
   const roundsMap = {};
   matches.forEach(m => {
     if (!roundsMap[m.round_name]) roundsMap[m.round_name] = [];
@@ -38,20 +36,15 @@ const BracketTree = ({ matches, currentUser }) => {
     (a, b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b)
   );
 
-  // Aktive Runde finden (erste mit ready/active Matches)
   const findActiveRound = () => {
     for (let i = 0; i < sortedRounds.length; i++) {
       const hasActive = roundsMap[sortedRounds[i]].some(m => m.status === 'ready' || m.status === 'active');
       if (hasActive) return i;
     }
-    // Alle fertig → letzte Runde zeigen
     return sortedRounds.length - 1;
   };
 
-  // Initial auf aktive Runde setzen
-  React.useEffect(() => {
-    setActiveRoundIdx(findActiveRound());
-  }, [matches]);
+  const [activeRoundIdx, setActiveRoundIdx] = useState(() => findActiveRound());
 
   const currentRound = sortedRounds[activeRoundIdx];
   const currentMatches = roundsMap[currentRound] || [];
@@ -59,6 +52,15 @@ const BracketTree = ({ matches, currentUser }) => {
 
   const canGoLeft = activeRoundIdx > 0;
   const canGoRight = activeRoundIdx < sortedRounds.length - 1;
+
+  const getRoundStatus = (roundName) => {
+    const rMatches = roundsMap[roundName] || [];
+    const allDone = rMatches.every(m => m.status === 'finished');
+    const someActive = rMatches.some(m => m.status === 'ready' || m.status === 'active');
+    if (allDone) return 'done';
+    if (someActive) return 'active';
+    return 'pending';
+  };
 
   const PlayerSlot = ({ name, score, timeMs, isWinner, isLoser, isMe }) => {
     const hasResult = score !== null && score !== undefined;
@@ -111,7 +113,6 @@ const BracketTree = ({ matches, currentUser }) => {
         isMyMatch && isActive ? 'ring-2 ring-green-500/50' :
         isActive ? 'ring-1 ring-yellow-500/30' : ''
       }`}>
-        {/* Match Header */}
         <div className={`flex items-center justify-between px-3 py-1.5 ${
           isFinished ? 'bg-white/5' :
           isActive ? 'bg-yellow-500/10' :
@@ -124,7 +125,6 @@ const BracketTree = ({ matches, currentUser }) => {
           {isPending && <span className="text-[9px] text-neutral-600">Wartet</span>}
         </div>
 
-        {/* Players */}
         <div className="p-2 space-y-1.5 bg-[#0d0d0d]">
           <PlayerSlot
             name={match.player1} score={match.player1_score} timeMs={match.player1_time_ms}
@@ -145,7 +145,6 @@ const BracketTree = ({ matches, currentUser }) => {
           />
         </div>
 
-        {/* Winner Bar */}
         {isFinished && match.winner && (
           <div className="bg-yellow-500/10 px-3 py-1.5 flex items-center justify-center gap-1">
             <Crown size={10} className="text-yellow-400" />
@@ -156,19 +155,8 @@ const BracketTree = ({ matches, currentUser }) => {
     );
   };
 
-  // Runden-Status berechnen
-  const getRoundStatus = (roundName) => {
-    const rMatches = roundsMap[roundName] || [];
-    const allDone = rMatches.every(m => m.status === 'finished');
-    const someActive = rMatches.some(m => m.status === 'ready' || m.status === 'active');
-    if (allDone) return 'done';
-    if (someActive) return 'active';
-    return 'pending';
-  };
-
   return (
     <div>
-      {/* Round Tabs */}
       <div className="flex items-center gap-1 mb-4 overflow-x-auto scrollbar-hide">
         {sortedRounds.map((round, idx) => {
           const status = getRoundStatus(round);
@@ -196,7 +184,6 @@ const BracketTree = ({ matches, currentUser }) => {
         })}
       </div>
 
-      {/* Round Title + Navigation */}
       <div className="flex items-center justify-between mb-4">
         <button
           onClick={() => canGoLeft && setActiveRoundIdx(activeRoundIdx - 1)}
@@ -230,14 +217,12 @@ const BracketTree = ({ matches, currentUser }) => {
         </button>
       </div>
 
-      {/* Matches */}
       <div className="space-y-3">
         {currentMatches.map((match, idx) => (
           <MatchCard key={match.id} match={match} matchNumber={idx + 1} />
         ))}
       </div>
 
-      {/* Round Progress */}
       <div className="flex items-center justify-center gap-1.5 mt-4">
         {sortedRounds.map((round, idx) => {
           const status = getRoundStatus(round);
