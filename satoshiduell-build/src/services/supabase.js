@@ -1909,6 +1909,15 @@ export const submitBracketMatchResult = async (matchId, username, score, timeMs)
   return { data, error };
 };
 
+// ============================================================
+// FIX: advanceBracketWinner — mit Bye-Handling
+// ============================================================
+// Diese Funktion ersetzt die bestehende advanceBracketWinner
+// in supabase.js. Die einzige Änderung ist der Block am Ende
+// der Funktion der Bye-Matches (Spieler ohne Gegner) erkennt
+// und rekursiv weiterleitet, sodass das Turnier nicht hängen bleibt.
+// ============================================================
+
 const advanceBracketWinner = async (finishedMatch) => {
   const { tournament_id, round_name, winner } = finishedMatch;
 
@@ -1952,17 +1961,22 @@ const advanceBracketWinner = async (finishedMatch) => {
   const qPerRound = tournament?.questions_per_round || {};
   const numQ = qPerRound[nextRound] || 5;
 
+  // Bye-Matches sammeln für rekursive Weiterleitung
+  const byeMatchIds = [];
+
   for (let i = 0; i < nextRoundMatches.length; i++) {
     const p1 = winners[i * 2] || null;
     const p2 = winners[i * 2 + 1] || null;
 
     const { data: questionIds } = await fetchQuestionIds(numQ);
 
+    const isBye = (p1 && !p2) || (!p1 && p2);
+
     const matchUpdates = {
       player1: p1,
       player2: p2,
       questions: questionIds,
-      status: (p1 && p2) ? 'ready' : (p1 || p2) ? 'finished' : 'pending',
+      status: (p1 && p2) ? 'ready' : isBye ? 'finished' : 'pending',
       winner: (p1 && !p2) ? p1 : (!p1 && p2) ? p2 : null,
       deadline_at: new Date(
         Date.now() + (tournament?.round_deadline_hours || 24) * 3600000
@@ -1977,9 +1991,30 @@ const advanceBracketWinner = async (finishedMatch) => {
       .from('tournament_bracket_matches')
       .update(matchUpdates)
       .eq('id', nextRoundMatches[i].id);
+
+    // Bye-Match merken
+    if (isBye) {
+      byeMatchIds.push(nextRoundMatches[i].id);
+    }
   }
 
   await updateBracketSummary(tournament_id);
+
+  // ── NEU: Bye-Matches rekursiv weiterleiten ──
+  // Ohne diesen Block bleibt das Turnier hängen wenn ein Spieler
+  // in der nächsten Runde keinen Gegner hat (z.B. bei manuellem
+  // Start mit weniger Spielern als max_players).
+  for (const byeId of byeMatchIds) {
+    const { data: byeMatch } = await supabase
+      .from('tournament_bracket_matches')
+      .select('*')
+      .eq('id', byeId)
+      .single();
+
+    if (byeMatch?.status === 'finished' && byeMatch?.winner) {
+      await advanceBracketWinner(byeMatch);
+    }
+  }
 };
 
 const finalizeBracketTournament = async (tournamentId, winnerName) => {
