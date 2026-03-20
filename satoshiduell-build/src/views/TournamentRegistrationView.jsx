@@ -1,19 +1,15 @@
 import React, { useState } from 'react';
 import Background from '../components/ui/Background';
-import { ArrowLeft, Shield, AlertCircle, KeyRound, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Shield, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { registerForTournament, redeemTournamentToken, addTournamentParticipant, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
+import { registerForTournament, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
 
 const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenReceived }) => {
   const { user } = useAuth();
   const [tournament, setTournament] = useState(null);
   const [identityType, setIdentityType] = useState(null);
   const [identityValue, setIdentityValue] = useState('');
-  const [tokenInput, setTokenInput] = useState('');
-  const [tokenError, setTokenError] = useState('');
-  const [tokenLoading, setTokenLoading] = useState(false);
   const [step, setStep] = useState('loading');
-  // steps: loading, choose, select, input, pending, token_entry, success, error
   const [resultError, setResultError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -25,10 +21,9 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       } else if (tournamentId) {
         result = await fetchTournamentById(tournamentId);
       }
-
       if (result?.data) {
         setTournament(result.data);
-        setStep('choose');
+        setStep('select');
       } else {
         setStep('error');
       }
@@ -37,57 +32,28 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
   }, [tournamentId, inviteCode]);
 
   const identityOptions = [
-    {
-      type: 'nostr',
-      icon: '🔑',
-      label: 'Nostr (npub)',
-      desc: 'Kryptographisch verifiziert via Amber/NIP-55',
-      placeholder: 'npub1...',
-    },
-    {
-      type: 'telegram',
-      icon: '✈️',
-      label: 'Telegram',
-      desc: 'Dein Telegram-Handle',
-      placeholder: '@dein_handle',
-    },
-    {
-      type: 'twitter',
-      icon: '🐦',
-      label: 'X / Twitter',
-      desc: 'Dein X/Twitter-Handle',
-      placeholder: '@dein_handle',
-    },
+    { type: 'nostr', icon: '🔑', label: 'Nostr (npub)', desc: 'Kryptographisch verifiziert via Amber/NIP-55', placeholder: 'npub1...' },
+    { type: 'telegram', icon: '✈️', label: 'Telegram', desc: 'Dein Telegram-Handle', placeholder: '@dein_handle' },
+    { type: 'twitter', icon: '🐦', label: 'X / Twitter', desc: 'Dein X/Twitter-Handle', placeholder: '@dein_handle' },
+    { type: 'email', icon: '📧', label: 'E-Mail', desc: 'Deine E-Mail-Adresse', placeholder: 'name@example.com' },
   ];
 
   const handleSelectIdentity = (type) => {
     setIdentityType(type);
     setIdentityValue('');
     setResultError('');
-
-    if (type === 'nostr' && user?.npub) {
-      setIdentityValue(user.npub);
-    }
-
+    if (type === 'nostr' && user?.npub) setIdentityValue(user.npub);
     setStep('input');
   };
 
   const handleSubmitRegistration = async () => {
-    if (!identityValue.trim()) {
-      setResultError('Bitte ausfüllen');
-      return;
-    }
-
-    if (identityType === 'nostr' && !identityValue.startsWith('npub')) {
-      setResultError('Bitte eine gültige npub eingeben');
-      return;
-    }
+    if (!identityValue.trim()) { setResultError('Bitte ausfüllen'); return; }
+    if (identityType === 'nostr' && !identityValue.startsWith('npub')) { setResultError('Bitte eine gültige npub eingeben'); return; }
 
     setSubmitting(true);
     setResultError('');
 
-    const isVerified = identityType === 'nostr' && user?.npub
-      && identityValue.toLowerCase() === user.npub.toLowerCase();
+    const isVerified = identityType === 'nostr' && user?.npub && identityValue.toLowerCase() === user.npub.toLowerCase();
 
     const { data, error } = await registerForTournament(
       tournament.id,
@@ -99,46 +65,8 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
 
     setSubmitting(false);
 
-    if (error) {
-      setResultError(error.message || 'Fehler bei der Registrierung');
-      return;
-    }
-
+    if (error) { setResultError(error.message || 'Fehler bei der Registrierung'); return; }
     setStep('pending');
-  };
-
-  const handleRedeemToken = async () => {
-    if (!tokenInput.trim()) {
-      setTokenError('Bitte Token eingeben');
-      return;
-    }
-    if (!user?.username) {
-      setTokenError('Bitte zuerst in der App einloggen');
-      return;
-    }
-
-    setTokenLoading(true);
-    setTokenError('');
-
-    // Token einlösen
-    const { data, error } = await redeemTournamentToken(
-      tournament.id,
-      tokenInput.trim(),
-      user.username
-    );
-
-    setTokenLoading(false);
-
-    if (error) {
-      setTokenError('Token ungültig oder bereits verwendet');
-      return;
-    }
-
-    // Erfolgreich beigetreten
-    setStep('success');
-    setTimeout(() => {
-      if (onTokenReceived) onTokenReceived(tournament.id, tokenInput.trim());
-    }, 2000);
   };
 
   if (step === 'loading') {
@@ -157,15 +85,8 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
         <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
           <AlertCircle size={48} className="text-red-400" />
           <h2 className="text-lg font-bold text-white">Turnier nicht gefunden</h2>
-          <p className="text-sm text-neutral-400 text-center">
-            Der Einladungscode ist ungültig oder das Turnier existiert nicht mehr.
-          </p>
-          <button
-            onClick={onBack}
-            className="mt-4 px-6 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-colors"
-          >
-            Zurück
-          </button>
+          <p className="text-sm text-neutral-400 text-center">Der Einladungscode ist ungültig oder das Turnier existiert nicht mehr.</p>
+          <button onClick={onBack} className="mt-4 px-6 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-colors">Zurück</button>
         </div>
       </Background>
     );
@@ -177,28 +98,22 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
         {/* Header */}
         <div className="p-6 pb-2 flex items-center gap-4 mb-4">
           <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
-            <ArrowLeft className="text-white" size={20}/>
+            <ArrowLeft className="text-white" size={20} />
           </button>
           <div className="flex-1">
-            <h2 className="text-lg font-black text-purple-500 uppercase tracking-widest">
-              Turnier beitreten
-            </h2>
+            <h2 className="text-lg font-black text-purple-500 uppercase tracking-widest">Registrieren</h2>
             <p className="text-xs text-neutral-400 mt-1">{tournament?.name}</p>
           </div>
         </div>
 
-        {/* Turnier-Info Card */}
-        {tournament && !['pending', 'success'].includes(step) && (
+        {/* Turnier-Info */}
+        {tournament && step !== 'pending' && (
           <div className="px-4 mb-6">
             <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
               <h3 className="text-white font-black text-lg mb-2">{tournament.name}</h3>
-              {tournament.description && (
-                <p className="text-xs text-neutral-400 mb-3">{tournament.description}</p>
-              )}
+              {tournament.description && <p className="text-xs text-neutral-400 mb-3">{tournament.description}</p>}
               {tournament.sponsor_name && (
-                <p className="text-xs text-neutral-300">
-                  Veranstalter: <span className="font-bold text-white">{tournament.sponsor_name}</span>
-                </p>
+                <p className="text-xs text-neutral-300">Veranstalter: <span className="font-bold text-white">{tournament.sponsor_name}</span></p>
               )}
               <div className="flex gap-4 mt-3 text-[10px] text-neutral-400">
                 <span>Format: <span className="text-white font-bold">{tournament.format === 'bracket' ? 'Bracket' : 'Highscore'}</span></span>
@@ -210,63 +125,20 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
 
         <div className="flex-1 px-4">
 
-          {/* ===== STEP: CHOOSE — Registrieren oder Token eingeben ===== */}
-          {step === 'choose' && (
-            <div className="space-y-4 animate-in fade-in">
-              <div className="text-center mb-4">
-                <h3 className="text-lg font-bold text-white mb-2">Wie möchtest du beitreten?</h3>
-              </div>
-
-              <button
-                onClick={() => setStep('select')}
-                className="w-full p-5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-purple-500/30 transition-all text-left flex items-start gap-4"
-              >
-                <div className="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Shield size={24} className="text-purple-400" />
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-white mb-1">Registrieren</div>
-                  <div className="text-[11px] text-neutral-400">
-                    Du hast noch keinen Token? Registriere dich mit deinem Handle. Der Veranstalter prüft deine Anmeldung und sendet dir einen Teilnahme-Code.
-                  </div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setStep('token_entry')}
-                className="w-full p-5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-green-500/30 transition-all text-left flex items-start gap-4"
-              >
-                <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <KeyRound size={24} className="text-green-400" />
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-white mb-1">Token eingeben</div>
-                  <div className="text-[11px] text-neutral-400">
-                    Du hast bereits einen Teilnahme-Code vom Veranstalter erhalten? Gib ihn hier ein um direkt beizutreten.
-                  </div>
-                </div>
-              </button>
-            </div>
-          )}
-
-          {/* ===== STEP: SELECT IDENTITY TYPE ===== */}
+          {/* ===== STEP: SELECT IDENTITY ===== */}
           {step === 'select' && (
             <div className="space-y-4 animate-in fade-in">
               <div className="text-center mb-6">
                 <Shield size={40} className="text-purple-400 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-white mb-2">Identität bestätigen</h3>
+                <h3 className="text-lg font-bold text-white mb-2">Kontaktweg hinterlegen</h3>
                 <p className="text-sm text-neutral-400">
-                  Wähle eine Methode um dich zu identifizieren. Der Veranstalter kontaktiert dich über diesen Kanal und sendet dir deinen Teilnahme-Code.
+                  Wähle wie dich der Veranstalter kontaktieren soll. Du erhältst darüber deinen Teilnahme-Code.
                 </p>
               </div>
-
               <div className="space-y-3">
                 {identityOptions.map(option => (
-                  <button
-                    key={option.type}
-                    onClick={() => handleSelectIdentity(option.type)}
-                    className="w-full p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-purple-500/30 transition-all text-left flex items-start gap-3"
-                  >
+                  <button key={option.type} onClick={() => handleSelectIdentity(option.type)}
+                    className="w-full p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-purple-500/30 transition-all text-left flex items-start gap-3">
                     <span className="text-2xl mt-0.5">{option.icon}</span>
                     <div>
                       <div className="text-sm font-bold text-white">{option.label}</div>
@@ -275,17 +147,10 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                   </button>
                 ))}
               </div>
-
-              <button
-                onClick={() => setStep('choose')}
-                className="w-full mt-2 px-4 py-3 bg-white/5 text-neutral-400 rounded-xl font-bold hover:bg-white/10 transition-colors text-sm"
-              >
-                Zurück
-              </button>
             </div>
           )}
 
-          {/* ===== STEP: INPUT IDENTITY VALUE ===== */}
+          {/* ===== STEP: INPUT VALUE ===== */}
           {step === 'input' && identityType && (
             <div className="space-y-4 animate-in fade-in">
               {(() => {
@@ -296,48 +161,25 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                       <span className="text-4xl">{option.icon}</span>
                       <h3 className="text-lg font-bold text-white mt-2">{option.label}</h3>
                     </div>
-
-                    <div>
-                      <input
-                        type="text"
-                        value={identityValue}
-                        onChange={e => setIdentityValue(e.target.value)}
-                        placeholder={option.placeholder}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white text-center text-lg outline-none focus:border-purple-500/50 transition-colors font-mono"
-                        autoFocus
-                      />
-                    </div>
-
+                    <input type="text" value={identityValue} onChange={e => setIdentityValue(e.target.value)}
+                      placeholder={option.placeholder} autoFocus
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white text-center text-lg outline-none focus:border-purple-500/50 transition-colors font-mono" />
                     {identityType === 'nostr' && user?.npub && (
                       <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 text-center">
-                        <p className="text-xs text-green-400 font-bold">
-                          ✓ npub aus deinem Profil erkannt
-                        </p>
+                        <p className="text-xs text-green-400 font-bold">✓ npub aus deinem Profil erkannt</p>
                       </div>
                     )}
-
                     <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
                       <p className="text-xs text-yellow-300">
-                        Der Veranstalter sieht diesen Handle und schickt dir darüber deinen persönlichen Teilnahme-Code zu. Bitte gib einen korrekten Handle an.
+                        Der Veranstalter sieht diese Kontaktinfo und schickt dir darüber deinen persönlichen Teilnahme-Code. Bitte gib korrekte Daten an.
                       </p>
                     </div>
-
-                    {resultError && (
-                      <div className="text-center text-xs text-red-400 font-bold p-2">{resultError}</div>
-                    )}
-
+                    {resultError && <div className="text-center text-xs text-red-400 font-bold p-2">{resultError}</div>}
                     <div className="flex gap-3 mt-4">
-                      <button
-                        onClick={() => { setStep('select'); setResultError(''); }}
-                        className="flex-1 px-4 py-3 bg-white/5 text-white rounded-xl font-bold hover:bg-white/10 transition-colors"
-                      >
-                        Zurück
-                      </button>
-                      <button
-                        onClick={handleSubmitRegistration}
-                        disabled={submitting || !identityValue.trim()}
-                        className="flex-1 px-4 py-3 bg-purple-500 text-black rounded-xl font-black hover:bg-purple-400 transition-colors disabled:opacity-60"
-                      >
+                      <button onClick={() => { setStep('select'); setResultError(''); }}
+                        className="flex-1 px-4 py-3 bg-white/5 text-white rounded-xl font-bold hover:bg-white/10 transition-colors">Zurück</button>
+                      <button onClick={handleSubmitRegistration} disabled={submitting || !identityValue.trim()}
+                        className="flex-1 px-4 py-3 bg-purple-500 text-black rounded-xl font-black hover:bg-purple-400 transition-colors disabled:opacity-60">
                         {submitting ? 'Registriere...' : 'Registrieren'}
                       </button>
                     </div>
@@ -347,49 +189,7 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
             </div>
           )}
 
-          {/* ===== STEP: TOKEN ENTRY ===== */}
-          {step === 'token_entry' && (
-            <div className="space-y-4 animate-in fade-in">
-              <div className="text-center mb-4">
-                <KeyRound size={40} className="text-green-400 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-white mb-2">Teilnahme-Code eingeben</h3>
-                <p className="text-sm text-neutral-400">
-                  Gib den Code ein, den du vom Veranstalter erhalten hast.
-                </p>
-              </div>
-
-              <input
-                type="text"
-                value={tokenInput}
-                onChange={e => setTokenInput(e.target.value)}
-                placeholder="z.B. T-a1b2c3d4e5f6..."
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white text-center text-lg outline-none focus:border-green-500/50 transition-colors font-mono"
-                autoFocus
-              />
-
-              {tokenError && (
-                <div className="text-center text-xs text-red-400 font-bold p-2">{tokenError}</div>
-              )}
-
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={() => { setStep('choose'); setTokenError(''); setTokenInput(''); }}
-                  className="flex-1 px-4 py-3 bg-white/5 text-white rounded-xl font-bold hover:bg-white/10 transition-colors"
-                >
-                  Zurück
-                </button>
-                <button
-                  onClick={handleRedeemToken}
-                  disabled={tokenLoading || !tokenInput.trim()}
-                  className="flex-1 px-4 py-3 bg-green-500 text-black rounded-xl font-black hover:bg-green-400 transition-colors disabled:opacity-60"
-                >
-                  {tokenLoading ? 'Prüfe...' : 'Beitreten'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ===== STEP: PENDING (Warte auf Genehmigung) ===== */}
+          {/* ===== STEP: PENDING ===== */}
           {step === 'pending' && (
             <div className="space-y-4 animate-in fade-in text-center">
               <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-green-500">
@@ -399,51 +199,24 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
               <p className="text-sm text-neutral-400">
                 Deine Anmeldung ist beim Veranstalter eingegangen. Nach Prüfung erhältst du deinen persönlichen Teilnahme-Code über deinen hinterlegten Kontaktweg.
               </p>
-
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-left">
                 <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">So geht es weiter</p>
                 <div className="space-y-2 text-xs text-neutral-300">
-                  <div className="flex items-start gap-2">
-                    <span className="text-purple-400 font-bold">1.</span>
-                    <span>Der Veranstalter prüft deine Anmeldung</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-purple-400 font-bold">2.</span>
-                    <span>Du erhältst einen Teilnahme-Code über deinen Handle</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-purple-400 font-bold">3.</span>
-                    <span>Öffne diesen Einladungslink erneut und wähle "Token eingeben"</span>
-                  </div>
+                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">1.</span><span>Der Veranstalter prüft deine Anmeldung</span></div>
+                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">2.</span><span>Du erhältst einen Teilnahme-Code über deinen Handle</span></div>
+                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">3.</span><span>Öffne das Turnier in der Übersicht und gib den Code ein</span></div>
                 </div>
               </div>
-
               {tournament?.contact_info && (
                 <div className="bg-white/5 border border-white/10 rounded-xl p-4">
                   <p className="text-xs text-neutral-500 mb-1">Kontakt des Veranstalters:</p>
                   <p className="text-sm text-white font-bold">{tournament.contact_info}</p>
                 </div>
               )}
-
-              <button
-                onClick={onBack}
-                className="mt-4 w-full px-6 py-3 bg-purple-500 text-black rounded-xl font-black hover:bg-purple-400 transition-colors"
-              >
+              <button onClick={onBack}
+                className="mt-4 w-full px-6 py-3 bg-purple-500 text-black rounded-xl font-black hover:bg-purple-400 transition-colors">
                 Zurück zur Übersicht
               </button>
-            </div>
-          )}
-
-          {/* ===== STEP: SUCCESS ===== */}
-          {step === 'success' && (
-            <div className="space-y-4 animate-in fade-in text-center">
-              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-green-500">
-                <CheckCircle2 size={40} className="text-green-400" />
-              </div>
-              <h3 className="text-xl font-black text-white">Du bist dabei!</h3>
-              <p className="text-sm text-neutral-400">
-                Du wurdest erfolgreich zum Turnier hinzugefügt. Du wirst gleich weitergeleitet...
-              </p>
             </div>
           )}
         </div>
