@@ -1312,13 +1312,32 @@ export const fetchTournamentPrizes = async (tournamentId) => {
 };
 
 export const markPrizeClaimed = async (prizeId) => {
-  const { data, error } = await supabase
+  const { data: prize, error } = await supabase
     .from('tournament_prizes')
     .update({ claimed: true, claimed_at: new Date().toISOString() })
     .eq('id', prizeId)
     .select()
     .single();
-  return { data, error };
+
+  if (error || !prize) return { data: null, error };
+
+  // Prüfen ob ALLE Preise dieses Turniers eingelöst sind
+  const { data: allPrizes } = await supabase
+    .from('tournament_prizes')
+    .select('claimed')
+    .eq('tournament_id', prize.tournament_id);
+
+  const allClaimed = allPrizes && allPrizes.length > 0 && allPrizes.every(p => p.claimed);
+
+  if (allClaimed) {
+    await supabase
+      .from('tournaments')
+      .update({ status: 'archived' })
+      .eq('id', prize.tournament_id)
+      .eq('status', 'finished');
+  }
+
+  return { data: prize, error: null };
 };
 
 export const unmarkPrizeClaimed = async (prizeId) => {
