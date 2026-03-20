@@ -375,6 +375,43 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                 <div className="mt-2 text-center text-[11px] text-neutral-300">Sponsor: <span className="font-bold text-white">{selectedTournament.sponsor_name}</span></div>
               )}
               {selectedTournament.description && <p className="mt-3 text-xs text-neutral-400 text-center">{selectedTournament.description}</p>}
+
+              {/* Erweiterte Details */}
+              <div className="mt-3 pt-3 border-t border-white/5 space-y-2 text-xs">
+                {selectedTournament.creator && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Veranstalter</span>
+                    <span className="text-white font-bold">{selectedTournament.creator}</span>
+                  </div>
+                )}
+                {selectedTournament.contact_info && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Kontakt</span>
+                    <span className="text-white font-bold break-all text-right ml-4">{selectedTournament.contact_info}</span>
+                  </div>
+                )}
+                {selectedTournament.sponsor_url && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Sponsor-Link</span>
+                    <a href={selectedTournament.sponsor_url} target="_blank" rel="noopener noreferrer"
+                      className="text-purple-400 font-bold truncate ml-4 hover:underline">
+                      {selectedTournament.sponsor_url.replace(/^https?:\/\//, '')}
+                    </a>
+                  </div>
+                )}
+                {selectedTournament.created_at && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Erstellt am</span>
+                    <span className="text-neutral-300">{new Date(selectedTournament.created_at).toLocaleDateString()}</span>
+                  </div>
+                )}
+                {selectedTournament.finished_at && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Beendet am</span>
+                    <span className="text-neutral-300">{new Date(selectedTournament.finished_at).toLocaleDateString()}</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -409,10 +446,12 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                 {selectedPrizes.map((prize, idx) => {
                   const emoji = idx === 0 ? '🏆' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
                   return (
-                    <div key={prize.id} className="flex items-center gap-3 bg-white/5 rounded-xl px-3 py-2 mb-1">
-                      <span className="text-sm">{emoji}</span>
-                      <div className="flex-1"><div className="text-xs font-bold text-white truncate">{prize.title}</div>
-                        {prize.winner_username && <div className="text-[10px] text-yellow-400"><Crown size={10} className="inline mr-1" />{prize.winner_username}</div>}
+                    <div key={prize.id} className="flex items-start gap-3 bg-white/5 rounded-xl px-3 py-2 mb-1">
+                      <span className="text-sm mt-0.5">{emoji}</span>
+                      <div className="flex-1">
+                        <div className="text-xs font-bold text-white">{prize.title}</div>
+                        {prize.description && <div className="text-[10px] text-neutral-400 mt-0.5">{prize.description}</div>}
+                        {prize.winner_username && <div className="text-[10px] text-yellow-400 mt-0.5"><Crown size={10} className="inline mr-1" />{prize.winner_username}</div>}
                       </div>
                     </div>
                   );
