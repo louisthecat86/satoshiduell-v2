@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
-import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, KeyRound } from 'lucide-react';
+import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, KeyRound, Swords } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
+import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 
 const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpenAdmin, onOpenRegistration }) => {
@@ -12,26 +12,20 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const { user, refreshUser } = useAuth();
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [selectedPrizes, setSelectedPrizes] = useState([]);
+  const [bracketMatches, setBracketMatches] = useState([]);
   const [localCanCreate, setLocalCanCreate] = useState(user?.can_create_tournaments || false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [tournaments, setTournaments] = useState([]);
   const [myRegistrations, setMyRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
-
-  // Token-Eingabe State
   const [tokenModal, setTokenModal] = useState(null);
   const [tokenInput, setTokenInput] = useState('');
   const [tokenError, setTokenError] = useState('');
   const [tokenLoading, setTokenLoading] = useState(false);
 
-  useEffect(() => {
-    if (user?.username) refreshUser(user.username);
-  }, []);
-
-  useEffect(() => {
-    setLocalCanCreate(user?.can_create_tournaments || false);
-  }, [user?.can_create_tournaments]);
+  useEffect(() => { if (user?.username) refreshUser(user.username); }, []);
+  useEffect(() => { setLocalCanCreate(user?.can_create_tournaments || false); }, [user?.can_create_tournaments]);
 
   const loadData = async () => {
     setLoading(true);
@@ -40,9 +34,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
       fetchTournaments(),
       user?.username ? fetchMyTournamentRegistrations(user.username) : { data: [] },
     ]);
-    if (tournamentsResult.error) {
-      setErrorMsg('Fehler beim Laden');
-    }
+    if (tournamentsResult.error) setErrorMsg('Fehler beim Laden');
     setTournaments(tournamentsResult.data || []);
     setMyRegistrations(registrationsResult.data || []);
     setLoading(false);
@@ -50,116 +42,107 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
   useEffect(() => { loadData(); }, []);
 
+  // Preise + Bracket-Matches laden wenn Turnier ausgewählt
   useEffect(() => {
-    if (!selectedTournament) { setSelectedPrizes([]); return; }
+    if (!selectedTournament) { setSelectedPrizes([]); setBracketMatches([]); return; }
     fetchTournamentPrizes(selectedTournament.id).then(({ data }) => setSelectedPrizes(data || []));
+    if (selectedTournament.format === 'bracket') {
+      fetchBracketMatches(selectedTournament.id).then(({ data }) => setBracketMatches(data || []));
+    }
   }, [selectedTournament?.id]);
 
   useEffect(() => {
     if (!selectedTournament || selectedTournament.status === 'finished' || !selectedTournament.play_until) return;
     finalizeTournamentIfReady(selectedTournament.id).then(({ data }) => {
-      if (data) {
-        setSelectedTournament(data);
-        setTournaments(prev => prev.map(t => t.id === data.id ? data : t));
-      }
+      if (data) { setSelectedTournament(data); setTournaments(prev => prev.map(t => t.id === data.id ? data : t)); }
     });
   }, [selectedTournament?.id]);
 
-  // ============================================
-  // ALLE Turniere sichtbar (außer cancelled)
-  // ============================================
-  const visibleTournaments = tournaments.filter(t =>
-    ['registration', 'active', 'finished'].includes(t.status)
-  );
+  const visibleTournaments = tournaments.filter(t => ['registration', 'active', 'finished'].includes(t.status));
+  const getMyRegistration = (tid) => myRegistrations.find(r => r.tournament_id === tid);
 
-  const getMyRegistration = (tournamentId) =>
-    myRegistrations.find(r => r.tournament_id === tournamentId);
+  const canDeleteTournament = (t) => { if (!user) return false; if (user.is_admin) return true; return t.creator?.toLowerCase() === user.username?.toLowerCase(); };
+  const isCreator = (t) => user && t && t.creator?.toLowerCase() === user.username?.toLowerCase();
+  const isParticipant = (t) => { if (!t || !user?.username) return false; return (t.participants || []).some(p => (p || '').toLowerCase() === user.username.toLowerCase()); };
 
-  const canDeleteTournament = (tournament) => {
-    if (!user) return false;
-    if (user.is_admin) return true;
-    return tournament.creator?.toLowerCase() === user.username?.toLowerCase();
-  };
-
-  const isCreator = (tournament) =>
-    user && tournament && tournament.creator?.toLowerCase() === user.username?.toLowerCase();
-
-  const isParticipant = (tournament) => {
-    if (!tournament || !user?.username) return false;
-    return (tournament.participants || []).some(p => (p || '').toLowerCase() === user.username.toLowerCase());
-  };
-
-  const hasPlayed = (tournament) => {
-    if (!tournament || !user?.username) return false;
-    const scores = tournament.participant_scores || {};
+  const hasPlayed = (t) => {
+    if (!t || !user?.username) return false;
+    if (t.format === 'bracket') return false; // Bracket hat eigene Logik
+    const scores = t.participant_scores || {};
     return scores[user.username.toLowerCase()] !== undefined && scores[user.username.toLowerCase()] !== null;
   };
 
-  const canStartTournament = (tournament) => {
-    if (!tournament || !isParticipant(tournament) || hasPlayed(tournament)) return false;
-    if (tournament.status === 'finished') return false;
-    if (tournament.play_until && new Date(tournament.play_until) <= new Date()) return false;
-    return true;
+  // Bracket: Finde mein aktuelles Match
+  const getMyBracketMatch = () => {
+    if (!user?.username || bracketMatches.length === 0) return null;
+    const me = user.username.toLowerCase();
+    return bracketMatches.find(m =>
+      ['ready', 'active'].includes(m.status) &&
+      ((m.player1 || '').toLowerCase() === me || (m.player2 || '').toLowerCase() === me)
+    );
   };
 
-  const handleDeleteTournament = async (tournamentId) => {
-    await deleteTournament(tournamentId);
-    setDeleteConfirm(null);
-    setSelectedTournament(null);
-    await loadData();
+  // Bracket: Habe ich in meinem aktuellen Match schon gespielt?
+  const hasPlayedBracketMatch = (match) => {
+    if (!match || !user?.username) return false;
+    const me = user.username.toLowerCase();
+    if ((match.player1 || '').toLowerCase() === me && match.player1_score !== null) return true;
+    if ((match.player2 || '').toLowerCase() === me && match.player2_score !== null) return true;
+    return false;
   };
 
-  const handleRedeemToken = async (tournamentId) => {
+  const canStartTournament = (t) => {
+    if (!t || !isParticipant(t) || t.status === 'finished') return false;
+    if (t.play_until && new Date(t.play_until) <= new Date()) return false;
+    if (t.format === 'bracket') {
+      const myMatch = getMyBracketMatch();
+      return myMatch && !hasPlayedBracketMatch(myMatch);
+    }
+    return !hasPlayed(t);
+  };
+
+  const handleDeleteTournament = async (id) => { await deleteTournament(id); setDeleteConfirm(null); setSelectedTournament(null); await loadData(); };
+
+  const handleRedeemToken = async (tid) => {
     if (!tokenInput.trim() || !user?.username) { setTokenError('Bitte Token eingeben'); return; }
-    setTokenLoading(true);
-    setTokenError('');
-    const { data, error } = await redeemTournamentToken(tournamentId, tokenInput.trim(), user.username);
+    setTokenLoading(true); setTokenError('');
+    const { data, error } = await redeemTournamentToken(tid, tokenInput.trim(), user.username);
     setTokenLoading(false);
     if (error) { setTokenError('Token ungültig oder bereits verwendet'); return; }
-    setTokenModal(null);
-    setTokenInput('');
-    if (data) {
-      setSelectedTournament(data);
-      setTournaments(prev => prev.map(t => t.id === data.id ? data : t));
-    }
+    setTokenModal(null); setTokenInput('');
+    if (data) { setSelectedTournament(data); setTournaments(prev => prev.map(t => t.id === data.id ? data : t)); }
     await loadData();
   };
 
-  const statusLabel = (s) => {
-    if (s === 'registration') return 'Anmeldung offen';
-    if (s === 'active') return 'Läuft';
-    if (s === 'finished') return 'Beendet';
-    return s;
-  };
-
+  const statusLabel = (s) => ({ registration: 'Anmeldung offen', active: 'Läuft', finished: 'Beendet' }[s] || s);
   const formatBadge = (f) => f === 'bracket' ? 'Bracket' : 'Highscore';
   const formatPlayUntil = (v) => { if (!v) return '-'; const d = new Date(v); return isNaN(d.getTime()) ? '-' : d.toLocaleString(); };
   const questionCount = (t) => t?.question_count || 0;
   const maxPlayersLabel = (t) => t?.max_players ? t.max_players : '∞';
 
+  const roundDisplayName = (name) => ({
+    round_of_32: 'Runde der 32', round_of_16: 'Achtelfinale',
+    quarter: 'Viertelfinale', semi: 'Halbfinale', final: 'Finale'
+  }[name] || name);
+
   const getResultsList = (tournament) => {
     const participants = Array.isArray(tournament?.participants) ? tournament.participants : [];
     const scores = tournament?.participant_scores || {};
     const times = tournament?.participant_times || {};
-    const rows = participants.map(name => {
+    return participants.map(name => {
       const key = (name || '').toLowerCase();
       const score = scores[key]; const timeMs = times[key];
       const played = score !== undefined && score !== null;
       return { name, key, score: played ? score : null, timeMs: played ? timeMs : null, played };
-    });
-    rows.sort((a, b) => {
+    }).sort((a, b) => {
       if (a.played !== b.played) return a.played ? -1 : 1;
       if (!a.played && !b.played) return 0;
       if (a.score !== b.score) return (b.score ?? 0) - (a.score ?? 0);
       return (a.timeMs ?? Infinity) - (b.timeMs ?? Infinity);
     });
-    return rows;
   };
 
-  const formatTournamentTime = (ms) => {
-    if (ms === null || ms === undefined) return '-';
-    return formatTime(Math.max(0, ms) / 1000);
-  };
+  const formatTournamentTime = (ms) => (ms === null || ms === undefined) ? '-' : formatTime(Math.max(0, ms) / 1000);
 
   const handleShareTournament = async (tournament) => {
     if (!tournament?.invite_code) return;
@@ -168,7 +151,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     try {
       if (navigator.share) await navigator.share({ title: tournament.name, text, url });
       else if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); alert('Link kopiert!'); }
-    } catch (e) { /* cancelled */ }
+    } catch (e) {}
   };
 
   const carbonStyle = {
@@ -178,6 +161,96 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
       'repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 2px, rgba(0,0,0,0.05) 2px 4px)',
       'repeating-linear-gradient(-45deg, rgba(255,255,255,0.03) 0 2px, rgba(0,0,0,0.03) 2px 4px)'
     ].join(', ')
+  };
+
+  // ============================================
+  // BRACKET TREE COMPONENT
+  // ============================================
+  const BracketTree = ({ matches, currentUser }) => {
+    if (!matches || matches.length === 0) return <p className="text-xs text-neutral-500 text-center py-4">Bracket wird generiert sobald alle Plätze besetzt sind.</p>;
+
+    const rounds = {};
+    matches.forEach(m => { if (!rounds[m.round_name]) rounds[m.round_name] = []; rounds[m.round_name].push(m); });
+    const roundOrder = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
+    const sortedRounds = Object.keys(rounds).sort((a, b) => roundOrder.indexOf(a) - roundOrder.indexOf(b));
+    const me = (currentUser || '').toLowerCase();
+
+    return (
+      <div className="space-y-4">
+        {sortedRounds.map(roundName => (
+          <div key={roundName}>
+            <h4 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 pl-1">
+              {roundDisplayName(roundName)}
+            </h4>
+            <div className="space-y-2">
+              {rounds[roundName].map(match => {
+                const p1IsMe = (match.player1 || '').toLowerCase() === me;
+                const p2IsMe = (match.player2 || '').toLowerCase() === me;
+                const isMyMatch = p1IsMe || p2IsMe;
+                const isFinished = match.status === 'finished';
+                const isReady = match.status === 'ready' || match.status === 'active';
+
+                return (
+                  <div key={match.id}
+                    className={`border rounded-xl p-3 ${
+                      isMyMatch && isReady ? 'border-green-500/50 bg-green-500/10 ring-1 ring-green-500/30' :
+                      isMyMatch && isFinished ? 'border-purple-500/30 bg-purple-500/5' :
+                      isFinished ? 'border-white/5 bg-white/5 opacity-50' :
+                      isReady ? 'border-yellow-500/30 bg-yellow-500/5' :
+                      'border-white/5 bg-white/5 opacity-30'
+                    }`}
+                  >
+                    {/* Player 1 */}
+                    <div className={`flex items-center justify-between py-1 ${
+                      match.winner === match.player1 ? 'text-yellow-400' :
+                      isFinished && match.winner && match.winner !== match.player1 ? 'text-neutral-600 line-through' :
+                      p1IsMe ? 'text-green-300' : 'text-white'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold">{match.player1 || '???'}</span>
+                        {match.winner === match.player1 && <Crown size={12} className="text-yellow-400" />}
+                        {p1IsMe && <span className="text-[9px] bg-green-500/20 text-green-400 px-1 rounded">DU</span>}
+                      </div>
+                      {match.player1_score !== null && (
+                        <span className="text-[10px] text-neutral-400">{match.player1_score} Pkt</span>
+                      )}
+                    </div>
+
+                    <div className="text-[9px] text-neutral-600 text-center py-0.5">vs</div>
+
+                    {/* Player 2 */}
+                    <div className={`flex items-center justify-between py-1 ${
+                      match.winner === match.player2 ? 'text-yellow-400' :
+                      isFinished && match.winner && match.winner !== match.player2 ? 'text-neutral-600 line-through' :
+                      p2IsMe ? 'text-green-300' : 'text-white'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold">{match.player2 || '???'}</span>
+                        {match.winner === match.player2 && <Crown size={12} className="text-yellow-400" />}
+                        {p2IsMe && <span className="text-[9px] bg-green-500/20 text-green-400 px-1 rounded">DU</span>}
+                      </div>
+                      {match.player2_score !== null && (
+                        <span className="text-[10px] text-neutral-400">{match.player2_score} Pkt</span>
+                      )}
+                    </div>
+
+                    {/* Status */}
+                    <div className="mt-1 text-center">
+                      {isFinished && match.winner && (
+                        <span className="text-[9px] text-yellow-400 font-bold">Gewinner: {match.winner}</span>
+                      )}
+                      {match.status === 'pending' && (
+                        <span className="text-[9px] text-neutral-600">Wartet auf vorherige Runde</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   // ============================================
@@ -195,8 +268,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
               <div className="flex gap-3 w-full mt-2">
                 <button onClick={() => setDeleteConfirm(null)} className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white font-bold hover:bg-white/10">Abbrechen</button>
                 <button onClick={() => handleDeleteTournament(deleteConfirm.id)} className="flex-1 px-4 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 flex items-center justify-center gap-2">
-                  <Trash2 size={18} /> Löschen
-                </button>
+                  <Trash2 size={18} /> Löschen</button>
               </div>
             </div>
           </div>
@@ -221,8 +293,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                 <button onClick={() => handleRedeemToken(tokenModal.tournamentId)}
                   disabled={tokenLoading || !tokenInput.trim()}
                   className="flex-1 px-4 py-3 rounded-xl bg-green-500 text-black font-bold hover:bg-green-400 disabled:opacity-60">
-                  {tokenLoading ? 'Prüfe...' : 'Beitreten'}
-                </button>
+                  {tokenLoading ? 'Prüfe...' : 'Beitreten'}</button>
               </div>
             </div>
           </div>
@@ -240,6 +311,17 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     const myReg = getMyRegistration(selectedTournament.id);
     const amParticipant = isParticipant(selectedTournament);
     const amCreator = isCreator(selectedTournament);
+    const myMatch = selectedTournament.format === 'bracket' ? getMyBracketMatch() : null;
+    const isBracket = selectedTournament.format === 'bracket';
+
+    // Gegner-Name für Bracket
+    const getOpponentName = () => {
+      if (!myMatch || !user?.username) return null;
+      const me = user.username.toLowerCase();
+      if ((myMatch.player1 || '').toLowerCase() === me) return myMatch.player2;
+      if ((myMatch.player2 || '').toLowerCase() === me) return myMatch.player1;
+      return null;
+    };
 
     return (
       <Background>
@@ -247,13 +329,13 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
           {/* Header */}
           <div className="flex items-center justify-between gap-4 mb-6 pt-4">
             <div className="flex items-center gap-4">
-              <button onClick={() => setSelectedTournament(null)} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
+              <button onClick={() => { setSelectedTournament(null); setBracketMatches([]); }} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
                 <ArrowLeft className="text-white" size={20} />
               </button>
               <div>
                 <h2 className="text-lg font-black text-white uppercase tracking-widest">{selectedTournament.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${selectedTournament.format === 'bracket' ? 'bg-blue-500/30 text-blue-300' : 'bg-purple-500/30 text-purple-300'}`}>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isBracket ? 'bg-blue-500/30 text-blue-300' : 'bg-purple-500/30 text-purple-300'}`}>
                     {formatBadge(selectedTournament.format)}
                   </span>
                   <span className="text-xs text-neutral-500">{statusLabel(selectedTournament.status)}</span>
@@ -261,7 +343,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
               </div>
             </div>
             <div className="flex items-center gap-2">
-              
               {canDeleteTournament(selectedTournament) && (
                 <button onClick={() => setDeleteConfirm({ id: selectedTournament.id, name: selectedTournament.name })}
                   className="bg-red-500/20 p-2 rounded-xl hover:bg-red-500/30 transition-colors border border-red-500/50">
@@ -285,67 +366,39 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             );
           })()}
 
-          {/* ===== REGISTRIERUNG / STATUS FÜR NICHT-TEILNEHMER ===== */}
+          {/* Registrierung für Nicht-Teilnehmer */}
           {!amParticipant && !amCreator && (
             <div className="px-4 mb-4">
-              {/* Noch nicht registriert */}
               {!myReg && selectedTournament.status !== 'finished' && (
                 <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 text-center">
                   <Trophy size={24} className="text-purple-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-white mb-2">An diesem Turnier teilnehmen?</p>
-                  <p className="text-xs text-neutral-400 mb-4">
-                    Registriere dich mit deinem Kontaktweg. Der Veranstalter prüft deine Anmeldung und sendet dir einen Teilnahme-Code.
-                  </p>
-                  <Button
-                    onClick={() => onOpenRegistration && onOpenRegistration(selectedTournament.id, selectedTournament.invite_code)}
-                    className="w-full bg-purple-500 hover:bg-purple-400 text-black font-black py-3"
-                  >
-                    Registrieren
-                  </Button>
+                  <p className="text-xs text-neutral-400 mb-4">Registriere dich mit deinem Kontaktweg.</p>
+                  <Button onClick={() => onOpenRegistration && onOpenRegistration(selectedTournament.id, selectedTournament.invite_code)}
+                    className="w-full bg-purple-500 hover:bg-purple-400 text-black font-black py-3">Registrieren</Button>
                 </div>
               )}
-
-              {/* Registrierung: Pending */}
               {myReg && myReg.status === 'pending' && (
                 <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 text-center">
                   <Clock size={24} className="text-orange-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-white mb-1">Registrierung wird geprüft</p>
-                  <p className="text-xs text-neutral-400">
-                    Der Veranstalter prüft deine Anmeldung. Du erhältst deinen Teilnahme-Code über deinen hinterlegten Kontaktweg ({myReg.identity_display}).
-                  </p>
+                  <p className="text-xs text-neutral-400">Du erhältst deinen Code über {myReg.identity_display}.</p>
                 </div>
               )}
-
-              {/* Registrierung: Approved → Token eingeben */}
               {myReg && myReg.status === 'approved' && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-4 text-center">
                   <KeyRound size={24} className="text-green-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-white mb-1">Registrierung genehmigt!</p>
-                  <p className="text-xs text-neutral-400 mb-3">
-                    Du solltest deinen Teilnahme-Code über {myReg.identity_display} erhalten haben.
-                  </p>
-                  <button
-                    onClick={() => { setTokenInput(''); setTokenError(''); setTokenModal({ tournamentId: selectedTournament.id }); }}
-                    className="w-full bg-green-500 text-black font-black py-3 rounded-xl hover:bg-green-400 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <KeyRound size={18} /> Code eingeben & beitreten
-                  </button>
+                  <p className="text-xs text-neutral-400 mb-3">Code über {myReg.identity_display} erhalten?</p>
+                  <button onClick={() => { setTokenInput(''); setTokenError(''); setTokenModal({ tournamentId: selectedTournament.id }); }}
+                    className="w-full bg-green-500 text-black font-black py-3 rounded-xl hover:bg-green-400 flex items-center justify-center gap-2">
+                    <KeyRound size={18} /> Code eingeben & beitreten</button>
                 </div>
               )}
-
-              {/* Registrierung: Rejected */}
               {myReg && myReg.status === 'rejected' && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 text-center">
                   <XCircle size={24} className="text-red-400 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-white mb-1">Registrierung abgelehnt</p>
-                  <p className="text-xs text-neutral-400">Der Veranstalter hat deine Anmeldung leider abgelehnt.</p>
-                </div>
-              )}
-
-              {/* Registrierung: Redeemed aber noch nicht in participants (edge case) */}
-              {myReg && myReg.status === 'redeemed' && (
-                <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 text-center">
-                  <p className="text-sm font-bold text-white">Token eingelöst — lade Seite neu</p>
+                  <p className="text-sm font-bold text-white">Registrierung abgelehnt</p>
                 </div>
               )}
             </div>
@@ -355,14 +408,22 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
           <div className="px-4 mb-4">
             <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
               <div className="grid grid-cols-2 gap-4 text-center">
-                <div>
-                  <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">Fragen</div>
-                  <div className="text-lg font-black text-white">{questionCount(selectedTournament)}</div>
-                </div>
+                {!isBracket && (
+                  <div>
+                    <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">Fragen</div>
+                    <div className="text-lg font-black text-white">{questionCount(selectedTournament)}</div>
+                  </div>
+                )}
                 <div>
                   <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">Teilnehmer</div>
                   <div className="text-lg font-black text-white">{selectedTournament.current_participants}/{maxPlayersLabel(selectedTournament)}</div>
                 </div>
+                {isBracket && (
+                  <div>
+                    <div className="text-[10px] text-neutral-400 uppercase font-bold mb-1">Modus</div>
+                    <div className="text-lg font-black text-blue-400">K.O.</div>
+                  </div>
+                )}
               </div>
               {selectedTournament.play_until && (
                 <div className="mt-3 flex items-center justify-center gap-2 text-[11px] text-neutral-300">
@@ -380,6 +441,65 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             </div>
           </div>
 
+          {/* BRACKET: Mein aktuelles Match */}
+          {isBracket && amParticipant && myMatch && !hasPlayedBracketMatch(myMatch) && (
+            <div className="px-4 mb-4">
+              <div className="bg-green-500/10 border border-green-500/40 rounded-2xl p-4">
+                <div className="text-center mb-3">
+                  <Swords size={28} className="text-green-400 mx-auto mb-2" />
+                  <h3 className="text-sm font-black text-white uppercase">Dein nächstes Match</h3>
+                  <p className="text-[10px] text-neutral-400 mt-1">{roundDisplayName(myMatch.round_name)}</p>
+                </div>
+                <div className="bg-black/30 rounded-xl p-3 mb-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-green-300">{user?.username}</span>
+                    <span className="text-[10px] text-neutral-500">vs</span>
+                    <span className="text-sm font-bold text-white">{getOpponentName() || '???'}</span>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => onStartTournament && onStartTournament(selectedTournament)}
+                  className="w-full bg-green-500 hover:bg-green-400 text-black font-black py-4 flex items-center justify-center gap-2 text-lg"
+                >
+                  ⚔️ Match spielen
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* BRACKET: Warte auf Gegner */}
+          {isBracket && amParticipant && myMatch && hasPlayedBracketMatch(myMatch) && (
+            <div className="px-4 mb-4">
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 text-center">
+                <Clock size={24} className="text-yellow-400 mx-auto mb-2" />
+                <p className="text-sm font-bold text-white">Warte auf deinen Gegner</p>
+                <p className="text-xs text-neutral-400 mt-1">{getOpponentName()} muss noch spielen</p>
+              </div>
+            </div>
+          )}
+
+          {/* BRACKET: Kein aktives Match (ausgeschieden oder Turnier noch nicht voll) */}
+          {isBracket && amParticipant && !myMatch && selectedTournament.status === 'active' && !selectedTournament.winner && (
+            <div className="px-4 mb-4">
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
+                <p className="text-sm text-neutral-400">Kein aktives Match — warte auf die nächste Runde oder du bist ausgeschieden.</p>
+              </div>
+            </div>
+          )}
+
+          {/* HIGHSCORE: Quiz starten */}
+          {!isBracket && canStartTournament(selectedTournament) && (
+            <div className="px-4 mb-4">
+              <Button onClick={() => onStartTournament && onStartTournament(selectedTournament)}
+                className="w-full bg-green-500 hover:bg-green-400 text-black font-black py-4 flex items-center justify-center gap-2 text-lg">
+                🎮 Quiz starten
+              </Button>
+            </div>
+          )}
+          {!isBracket && amParticipant && hasPlayed(selectedTournament) && (
+            <div className="px-4 mb-2 text-center text-xs text-neutral-400 font-bold py-2">✓ Du hast bereits gespielt</div>
+          )}
+
           {/* Creator Tools */}
           {amCreator && (
             <div className="px-4 mb-4 space-y-3">
@@ -392,19 +512,16 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                   <div className="flex gap-2">
                     <button onClick={() => { navigator.clipboard.writeText(`https://www.satoshiduell.com/t/${selectedTournament.invite_code}`); alert('Link kopiert!'); }}
                       className="flex-1 bg-purple-500/20 text-purple-300 text-xs font-bold py-2 rounded-lg hover:bg-purple-500/30 flex items-center justify-center gap-1">
-                      <Link2 size={12} /> Kopieren
-                    </button>
+                      <Link2 size={12} /> Kopieren</button>
                     <button onClick={() => handleShareTournament(selectedTournament)}
                       className="flex-1 bg-purple-500/20 text-purple-300 text-xs font-bold py-2 rounded-lg hover:bg-purple-500/30 flex items-center justify-center gap-1">
-                      <Share2 size={12} /> Teilen
-                    </button>
+                      <Share2 size={12} /> Teilen</button>
                   </div>
                 </div>
               )}
               <Button onClick={() => onOpenAdmin && onOpenAdmin(selectedTournament.id)}
                 className="w-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 font-black py-3 flex items-center justify-center gap-2 border border-purple-500/30">
-                <Shield size={18} /> Admin Dashboard öffnen
-              </Button>
+                <Shield size={18} /> Admin Dashboard öffnen</Button>
             </div>
           )}
 
@@ -421,9 +538,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                         <span className="text-sm">{emoji}</span>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-bold text-white truncate">{prize.title}</div>
-                          {prize.winner_username && (
-                            <div className="text-[10px] text-yellow-400"><Crown size={10} className="inline mr-1" />{prize.winner_username}</div>
-                          )}
+                          {prize.winner_username && <div className="text-[10px] text-yellow-400"><Crown size={10} className="inline mr-1" />{prize.winner_username}</div>}
                         </div>
                       </div>
                     );
@@ -433,8 +548,18 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             </div>
           )}
 
-          {/* Rangliste (nur wenn Teilnehmer oder Turnier beendet) */}
-          {(amParticipant || amCreator || selectedTournament.status === 'finished') && resultsList.length > 0 && (
+          {/* BRACKET TREE */}
+          {isBracket && bracketMatches.length > 0 && (
+            <div className="px-4 mb-4">
+              <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
+                <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-3 ml-1">Turnierbaum</h3>
+                <BracketTree matches={bracketMatches} currentUser={user?.username} />
+              </div>
+            </div>
+          )}
+
+          {/* HIGHSCORE Rangliste */}
+          {!isBracket && (amParticipant || amCreator || selectedTournament.status === 'finished') && resultsList.length > 0 && (
             <div className="px-4 mb-4">
               <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
                 <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-3 ml-1">Rangliste</h3>
@@ -461,25 +586,24 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             </div>
           )}
 
-          {/* Actions */}
-          <div className="px-4 mb-6 space-y-3">
-            {canStartTournament(selectedTournament) && (
-              <Button onClick={() => onStartTournament && onStartTournament(selectedTournament)}
-                className="w-full bg-green-500 hover:bg-green-400 text-black font-black py-4 flex items-center justify-center gap-2 text-lg">
-                🎮 Quiz starten
-              </Button>
-            )}
-            {amParticipant && hasPlayed(selectedTournament) && (
-              <div className="text-center text-xs text-neutral-400 font-bold py-2">✓ Du hast bereits gespielt</div>
-            )}
-            {selectedTournament.status === 'finished' && isWinner && (
+          {/* Gewinner */}
+          {selectedTournament.status === 'finished' && isWinner && (
+            <div className="px-4 mb-6">
               <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-4 text-center">
                 <Crown size={24} className="text-yellow-400 mx-auto mb-2" />
                 <p className="text-sm font-bold text-white mb-1">Du hast gewonnen!</p>
-                <p className="text-xs text-neutral-400">Der Veranstalter wird dich für die Preisübergabe kontaktieren.</p>
+                <p className="text-xs text-neutral-400">Der Veranstalter wird dich kontaktieren.</p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+          {selectedTournament.status === 'finished' && selectedTournament.winner && !isWinner && (
+            <div className="px-4 mb-6">
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 text-center">
+                <Crown size={24} className="text-yellow-400 mx-auto mb-2" />
+                <p className="text-sm font-bold text-white">Gewinner: {selectedTournament.winner}</p>
+              </div>
+            </div>
+          )}
         </div>
         {renderModals()}
       </Background>
@@ -520,29 +644,21 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             <div className="flex items-start justify-between mb-2">
               <h4 className="text-white font-black text-sm flex-1">{tournament.name}</h4>
               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-2 ${tournament.format === 'bracket' ? 'bg-blue-500/30 text-blue-200' : 'bg-purple-500/30 text-purple-200'}`}>
-                {formatBadge(tournament.format)}
-              </span>
+                {formatBadge(tournament.format)}</span>
             </div>
             {tournament.description && <p className="text-[10px] text-neutral-200 line-clamp-1 mb-2">{tournament.description}</p>}
             <div className="flex gap-4 text-[10px]">
-              <div className="flex items-center gap-1">
-                <Users size={12} className="text-neutral-100" />
-                <span className="text-white font-bold">{tournament.current_participants}/{maxPlayersLabel(tournament)}</span>
-              </div>
-              {amPart && canStartTournament(tournament) && <span className="text-green-300 font-bold animate-pulse">▶ Spielen</span>}
-              {amPart && hasPlayed(tournament) && <span className="text-neutral-300">✓ Gespielt</span>}
-              {amPart && !hasPlayed(tournament) && !canStartTournament(tournament) && <span className="text-green-300 font-bold">✓ Dabei</span>}
+              <div className="flex items-center gap-1"><Users size={12} className="text-neutral-100" />
+                <span className="text-white font-bold">{tournament.current_participants}/{maxPlayersLabel(tournament)}</span></div>
+              {amPart && <span className="text-green-300 font-bold">✓ Dabei</span>}
             </div>
-            {myReg && !amPart && (
-              <div className="mt-2"><RegistrationBadge registration={myReg} /></div>
-            )}
+            {myReg && !amPart && <div className="mt-2"><RegistrationBadge registration={myReg} /></div>}
           </div>
         </button>
         {canDeleteTournament(tournament) && (
           <button onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: tournament.id, name: tournament.name }); }}
             className="absolute -top-2 -right-2 bg-black/70 p-1.5 rounded-lg hover:bg-red-500/30 transition-colors border border-red-500/50 z-10">
-            <Trash2 className="text-red-400" size={12} />
-          </button>
+            <Trash2 className="text-red-400" size={12} /></button>
         )}
       </div>
     );
@@ -553,17 +669,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
       <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto scrollbar-hide">
         <div className="p-6 pb-2 flex items-center gap-4">
           <button onClick={onBack} className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
-            <ArrowLeft className="text-white" size={20} />
-          </button>
+            <ArrowLeft className="text-white" size={20} /></button>
           <div className="flex-1">
             <h2 className="text-xl font-black text-orange-500 uppercase tracking-widest flex items-center gap-2">
-              <Trophy size={24} /> Community Turniere
-            </h2>
+              <Trophy size={24} /> Community Turniere</h2>
           </div>
           <button onClick={() => { refreshUser(user?.username); loadData(); }}
             className="bg-white/10 p-2 rounded-xl hover:bg-white/20 transition-colors">
-            <RefreshCw className="text-white" size={20} />
-          </button>
+            <RefreshCw className="text-white" size={20} /></button>
         </div>
 
         {localCanCreate && (
@@ -578,29 +691,24 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 scrollbar-hide">
           {loading && <div className="text-center text-neutral-500 text-sm py-10">Lade Turniere...</div>}
-          {!loading && errorMsg && <div className="text-center text-red-400 text-sm py-10">{errorMsg}</div>}
           {!loading && visibleTournaments.length === 0 && (
             <div className="text-center py-16">
               <Trophy size={48} className="text-neutral-700 mx-auto mb-4" />
-              <p className="text-neutral-500 text-sm mb-2">Keine Turniere vorhanden</p>
-              <p className="text-neutral-600 text-xs">Aktuell gibt es keine offenen Turniere.</p>
+              <p className="text-neutral-500 text-sm">Keine Turniere vorhanden</p>
             </div>
           )}
-
           {activeTournaments.length > 0 && (
             <div>
               <h3 className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-3 pl-1">Läuft</h3>
               {activeTournaments.map(t => renderTournamentCard(t, 'border-green-500/30', 'bg-gradient-to-r from-green-500/30 to-emerald-500/30'))}
             </div>
           )}
-
           {registrationTournaments.length > 0 && (
             <div>
               <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-3 pl-1">Anmeldung offen</h3>
               {registrationTournaments.map(t => renderTournamentCard(t, 'border-orange-500/30', 'bg-gradient-to-r from-orange-500/20 to-yellow-500/20'))}
             </div>
           )}
-
           {finishedTournaments.length > 0 && (
             <div>
               <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-3 pl-1">Historie</h3>
@@ -615,16 +723,11 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                       </div>
                       <Trophy size={16} className="text-yellow-400" />
                     </div>
-                    <div className="flex gap-4 text-[10px]">
-                      <span className="text-neutral-400">{questionCount(tournament)} Fragen</span>
-                      <span className="text-neutral-400">{tournament.current_participants} Teilnehmer</span>
-                    </div>
                   </button>
                   {canDeleteTournament(tournament) && (
                     <button onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: tournament.id, name: tournament.name }); }}
                       className="absolute -top-2 -right-2 bg-black/70 p-1.5 rounded-lg hover:bg-red-500/30 transition-colors border border-red-500/50 z-10">
-                      <Trash2 className="text-red-400" size={12} />
-                    </button>
+                      <Trash2 className="text-red-400" size={12} /></button>
                   )}
                 </div>
               ))}
