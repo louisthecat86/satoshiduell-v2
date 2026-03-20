@@ -59,19 +59,20 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
     }
 
     // 2. Token generieren
-    const { error: tokenError, token } = await createTournamentToken(
+    const { data: tokenData, error: tokenError, token } = await createTournamentToken(
       tournamentId,
       reg.identity_display,
       user?.username
     );
 
-    if (tokenError || !token) {
-      alert('Genehmigt, aber Token konnte nicht generiert werden: ' + (tokenError?.message || ''));
+    if (tokenError || !tokenData) {
+      console.error('Token creation failed:', tokenError);
+      alert('Genehmigt, aber Token konnte nicht in der Datenbank gespeichert werden: ' + (tokenError?.message || 'Unbekannter Fehler'));
       await loadData();
       return;
     }
 
-    // 3. Token dem Creator zeigen zum Kopieren/Senden
+    // 3. Token dem Creator zeigen
     setApproveTokenModal({ registration: reg, token });
     await loadData();
   };
