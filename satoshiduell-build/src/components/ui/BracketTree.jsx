@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { formatTime } from '../../utils/formatters';
 import { ChevronLeft, ChevronRight, Crown } from 'lucide-react';
 import { formatTime } from '../utils/formatters';
 
