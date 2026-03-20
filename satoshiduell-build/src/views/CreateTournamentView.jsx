@@ -1,18 +1,16 @@
 import React, { useState } from 'react';
 import Background from '../components/ui/Background';
-import { ArrowLeft, Users, Trophy, Crown, Plus, Trash2, Gift, Lock, Globe, Link2, LayoutGrid } from 'lucide-react';
-import { useTranslation } from '../hooks/useTranslation';
+import { ArrowLeft, Users, Trophy, Crown, Plus, Trash2, Gift, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 const CreateTournamentView = ({ onCancel, onConfirm }) => {
-  const { t } = useTranslation();
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [form, setForm] = useState({
-    // Step 1: Format
+    // Step 1: Format & Basics
     format: 'highscore',
     name: '',
     description: '',
@@ -26,18 +24,14 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     playTime: '',
     playUntil: '',
     deadlineMode: 'deadline',
-    // Bracket-spezifisch
     roundDeadlineHours: 24,
     questionsPerRound: null,
-
-    // Step 3: Access
-    accessLevel: 'public',
     contactInfo: '',
 
-    // Step 4: Prizes
+    // Step 3: Prizes
     prizes: [{ title: '', description: '' }],
 
-    // Step 5: Sponsor
+    // Step 4: Sponsor & Review
     sponsorName: '',
     sponsorUrl: '',
   });
@@ -109,12 +103,6 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     return `${index + 1}. Platz`;
   };
 
-  const accessOptions = [
-    { value: 'public', label: 'Öffentlich', desc: 'Jeder kann beitreten', icon: Globe },
-    { value: 'invite', label: 'Einladungslink', desc: 'Nur mit Link + Identitätsprüfung', icon: Link2 },
-    { value: 'token', label: 'Individueller Token', desc: 'Creator vergibt Tokens persönlich', icon: Lock },
-  ];
-
   const bracketSizes = [4, 8, 16, 32];
 
   const validate = () => {
@@ -136,11 +124,6 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
       if (!form.maxPlayers) { alert('Spieleranzahl für Bracket wählen'); return false; }
     }
 
-    if (form.accessLevel === 'token' && !form.contactInfo.trim()) {
-      alert('Kontaktinfo für Token-Modus erforderlich');
-      return false;
-    }
-
     return true;
   };
 
@@ -156,7 +139,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
       name: form.name.trim(),
       description: form.description.trim() || null,
       format: form.format,
-      access_level: form.accessLevel,
+      access_level: 'invite',
       contact_info: form.contactInfo.trim() || null,
       sponsor_name: form.sponsorName.trim() || null,
       sponsor_url: form.sponsorUrl.trim() || null,
@@ -262,10 +245,23 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                 <textarea
                   value={form.description}
                   onChange={e => updateForm('description', e.target.value)}
-                  placeholder="Worum geht es? Wer stiftet die Preise?"
-                  className={`${inputClass} min-h-[80px]`}
-                  maxLength={500}
+                  placeholder="Worum geht es? Was sind die Regeln? Was gibt es zu gewinnen?"
+                  className={`${inputClass} min-h-[100px]`}
+                  maxLength={1000}
                 />
+                <p className="text-[10px] text-neutral-500 mt-1">Diese Beschreibung sehen Teilnehmer auf der Registrierungsseite</p>
+              </div>
+
+              <div>
+                <label className={labelClass}>Kontaktinfo</label>
+                <input
+                  type="text"
+                  value={form.contactInfo}
+                  onChange={e => updateForm('contactInfo', e.target.value)}
+                  placeholder="z.B. Telegram: @dein_handle"
+                  className={inputClass}
+                />
+                <p className="text-[10px] text-neutral-500 mt-1">Wird Teilnehmern angezeigt damit sie dich erreichen können</p>
               </div>
 
               <div>
@@ -301,7 +297,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                       min="1" max="100"
                       className={inputClass}
                     />
-                    <p className="text-[10px] text-neutral-500 mt-1">Alle Teilnehmer spielen dasselbe Quiz mit dieser Anzahl Fragen</p>
+                    <p className="text-[10px] text-neutral-500 mt-1">Alle Teilnehmer spielen dasselbe Quiz</p>
                   </div>
 
                   <div>
@@ -424,10 +420,9 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                                 type="number"
                                 value={count}
                                 onChange={e => {
-                                  const newVal = parseInt(e.target.value) || 1;
                                   updateForm('questionsPerRound', {
                                     ...form.questionsPerRound,
-                                    [round]: newVal,
+                                    [round]: parseInt(e.target.value) || 1,
                                   });
                                 }}
                                 min="1" max="30"
@@ -469,7 +464,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-4">
                 <p className="text-xs text-neutral-300">
                   <Gift size={14} className="inline text-yellow-400 mr-1" />
-                  Preise werden nach Turnier-Ende den Gewinnern zugeordnet. Die Auszahlung erfolgt direkt durch dich an den Gewinner.
+                  Preise werden nach Turnier-Ende den Gewinnern zugeordnet. Die Auszahlung erfolgt direkt durch dich an den Gewinner über dessen hinterlegte Kontaktmethode.
                 </p>
               </div>
 
@@ -478,10 +473,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm font-bold text-white">{placeLabel(idx)}</span>
                     {form.prizes.length > 1 && (
-                      <button
-                        onClick={() => removePrize(idx)}
-                        className="text-red-400 hover:text-red-300 p-1"
-                      >
+                      <button onClick={() => removePrize(idx)} className="text-red-400 hover:text-red-300 p-1">
                         <Trash2 size={14} />
                       </button>
                     )}
@@ -555,9 +547,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                   </div>
                   <div>
                     <span className="text-[10px] text-neutral-400 font-bold">ZUGANG</span>
-                    <p className="text-white font-black">
-                      {form.accessLevel === 'public' ? 'Öffentlich' : form.accessLevel === 'invite' ? 'Einladungslink' : 'Token'}
-                    </p>
+                    <p className="text-white font-black">Einladungslink</p>
                   </div>
                   {form.playUntil && (
                     <div className="col-span-2">
@@ -581,6 +571,12 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                <p className="text-xs text-neutral-300">
+                  Nach dem Erstellen erhältst du einen <span className="text-purple-400 font-bold">Einladungslink</span> den du teilen kannst. Interessenten registrieren sich über den Link und du entscheidest wer teilnehmen darf.
+                </p>
               </div>
             </div>
           )}
