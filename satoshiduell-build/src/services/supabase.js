@@ -1901,12 +1901,19 @@ const advanceBracketWinner = async (finishedMatch) => {
 
   if (!allMatches) return;
 
+  const ROUND_ORDER = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
   const roundNames = [];
   const seen = new Set();
-  allMatches.forEach(m => { if (!seen.has(m.round_name)) { seen.add(m.round_name); roundNames.push(m.round_name); } });
+  const sortedByRound = [...allMatches].sort((a, b) => {
+    const orderA = ROUND_ORDER.indexOf(a.round_name);
+    const orderB = ROUND_ORDER.indexOf(b.round_name);
+    if (orderA !== orderB) return orderA - orderB;
+    return a.match_index - b.match_index;
+  });
+  sortedByRound.forEach(m => { if (!seen.has(m.round_name)) { seen.add(m.round_name); roundNames.push(m.round_name); } });
 
   const currentRoundIdx = roundNames.indexOf(round_name);
-  const currentRoundMatches = allMatches.filter(m => m.round_name === round_name);
+  const currentRoundMatches = sortedByRound.filter(m => m.round_name === round_name);
   const allCurrentDone = currentRoundMatches.every(m => m.status === 'finished');
 
   // Finale → Turnier beenden
@@ -1919,7 +1926,7 @@ const advanceBracketWinner = async (finishedMatch) => {
 
   // Nächste Runde vorbereiten
   const nextRound = roundNames[currentRoundIdx + 1];
-  const nextRoundMatches = allMatches.filter(m => m.round_name === nextRound);
+  const nextRoundMatches = sortedByRound.filter(m => m.round_name === nextRound);
   const winners = currentRoundMatches.map(m => m.winner);
 
   const { data: tournament } = await fetchTournamentById(tournament_id);
