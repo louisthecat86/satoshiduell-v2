@@ -1,6 +1,5 @@
 import { formatTime } from '../../utils/formatters';
 import { ChevronLeft, ChevronRight, Crown } from 'lucide-react';
-import { formatTime } from '../utils/formatters';
 
 const ROUND_ORDER = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
 const ROUND_LABELS = {
