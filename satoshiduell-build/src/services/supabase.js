@@ -1608,7 +1608,7 @@ export const submitTournamentResult = async (tournamentId, username, score, time
   }
 
   scores[normalizedName] = score;
-  times[normalizedName] = timeMs;
+  times[normalizedName] = Math.round(timeMs);
 
   const updates = { participant_scores: scores, participant_times: times };
 
@@ -1855,8 +1855,8 @@ export const submitBracketMatchResult = async (matchId, username, score, timeMs)
   if (isP2 && match.player2_score !== null) return { data: match, error: null };
 
   const updates = { status: 'active' };
-  if (isP1) { updates.player1_score = score; updates.player1_time_ms = timeMs; }
-  if (isP2) { updates.player2_score = score; updates.player2_time_ms = timeMs; }
+  if (isP1) { updates.player1_score = score; updates.player1_time_ms = Math.round(timeMs); }
+  if (isP2) { updates.player2_score = score; updates.player2_time_ms = Math.round(timeMs); }
 
   // Match komplett?
   const p1Done = isP1 ? true : match.player1_score !== null;
