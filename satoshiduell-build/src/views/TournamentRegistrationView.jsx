@@ -1,23 +1,18 @@
 import React, { useState } from 'react';
 import Background from '../components/ui/Background';
-import { ArrowLeft, Shield, Copy, CheckCircle2, AlertCircle } from 'lucide-react';
-import { useTranslation } from '../hooks/useTranslation';
+import { ArrowLeft, Shield, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { registerForTournament, redeemRegistrationToken, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
+import { registerForTournament, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
 
 const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenReceived }) => {
-  const { t } = useTranslation();
   const { user } = useAuth();
   const [tournament, setTournament] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [identityType, setIdentityType] = useState(null);
   const [identityValue, setIdentityValue] = useState('');
-  const [step, setStep] = useState('loading'); // loading, select, input, result
-  const [resultToken, setResultToken] = useState(null);
+  const [step, setStep] = useState('loading');
   const [resultError, setResultError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Turnier laden
   React.useEffect(() => {
     const load = async () => {
       let result;
@@ -33,7 +28,6 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       } else {
         setStep('error');
       }
-      setLoading(false);
     };
     load();
   }, [tournamentId, inviteCode]);
@@ -45,7 +39,6 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       label: 'Nostr (npub)',
       desc: 'Kryptographisch verifiziert via Amber/NIP-55',
       placeholder: 'npub1...',
-      verifiable: true,
     },
     {
       type: 'telegram',
@@ -53,7 +46,6 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       label: 'Telegram',
       desc: 'Dein Telegram-Handle',
       placeholder: '@dein_handle',
-      verifiable: false,
     },
     {
       type: 'twitter',
@@ -61,7 +53,6 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       label: 'X / Twitter',
       desc: 'Dein X/Twitter-Handle',
       placeholder: '@dein_handle',
-      verifiable: false,
     },
   ];
 
@@ -70,7 +61,6 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
     setIdentityValue('');
     setResultError('');
 
-    // Nostr: Automatisch npub aus Profil nehmen wenn vorhanden
     if (type === 'nostr' && user?.npub) {
       setIdentityValue(user.npub);
     }
@@ -95,7 +85,7 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
     const isVerified = identityType === 'nostr' && user?.npub
       && identityValue.toLowerCase() === user.npub.toLowerCase();
 
-    const { data, error, token } = await registerForTournament(
+    const { data, error } = await registerForTournament(
       tournament.id,
       identityType,
       identityValue.trim(),
@@ -109,36 +99,8 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
       return;
     }
 
-    if (token) {
-      // Token sofort einlösen (nur bei auto-approve / public)
-      if (user?.username) {
-        const { data: joinData, error: joinError } = await redeemRegistrationToken(
-          tournament.id, token, user.username
-        );
-        if (!joinError && joinData) {
-          setStep('success');
-          setTimeout(() => {
-            if (onTokenReceived) onTokenReceived(tournament.id, token);
-          }, 1500);
-          return;
-        }
-      }
-      // Fallback: Token anzeigen
-      setResultToken(token);
-      setStep('result');
-    } else if (data?.status === 'pending') {
-    } else {
-      setResultError('Registrierung eingegangen, aber kein Token erhalten. Bitte kontaktiere den Veranstalter.');
-    }
-  };
-
-  const handleCopyAndContinue = () => {
-    if (resultToken) {
-      navigator.clipboard.writeText(resultToken);
-    }
-    if (onTokenReceived) {
-      onTokenReceived(tournament.id, resultToken);
-    }
+    // Registrierung erfolgreich → Warte auf Genehmigung
+    setStep('pending');
   };
 
   if (step === 'loading') {
@@ -187,6 +149,27 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
           </div>
         </div>
 
+        {/* Turnier-Info Card */}
+        {tournament && step !== 'pending' && (
+          <div className="px-4 mb-6">
+            <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
+              <h3 className="text-white font-black text-lg mb-2">{tournament.name}</h3>
+              {tournament.description && (
+                <p className="text-xs text-neutral-400 mb-3">{tournament.description}</p>
+              )}
+              {tournament.sponsor_name && (
+                <p className="text-xs text-neutral-300">
+                  Veranstalter: <span className="font-bold text-white">{tournament.sponsor_name}</span>
+                </p>
+              )}
+              <div className="flex gap-4 mt-3 text-[10px] text-neutral-400">
+                <span>Format: <span className="text-white font-bold">{tournament.format === 'bracket' ? 'Bracket' : 'Highscore'}</span></span>
+                <span>Teilnehmer: <span className="text-white font-bold">{tournament.current_participants}{tournament.max_players ? `/${tournament.max_players}` : ''}</span></span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 px-4">
 
           {/* ===== STEP: SELECT IDENTITY TYPE ===== */}
@@ -196,7 +179,7 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                 <Shield size={40} className="text-purple-400 mx-auto mb-3" />
                 <h3 className="text-lg font-bold text-white mb-2">Identität bestätigen</h3>
                 <p className="text-sm text-neutral-400">
-                  Wähle eine Methode um dich zu identifizieren. Jede Identität kann nur einmal an diesem Turnier teilnehmen.
+                  Wähle eine Methode um dich zu identifizieren. Der Veranstalter wird dich über diesen Kanal kontaktieren und dir deinen Teilnahme-Code zusenden.
                 </p>
               </div>
 
@@ -211,11 +194,6 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                     <div>
                       <div className="text-sm font-bold text-white">{option.label}</div>
                       <div className="text-[10px] text-neutral-400 mt-1">{option.desc}</div>
-                      {option.verifiable && (
-                        <div className="text-[10px] text-green-400 mt-1 font-bold">
-                          ✓ Kryptographisch verifizierbar
-                        </div>
-                      )}
                     </div>
                   </button>
                 ))}
@@ -254,13 +232,11 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                       </div>
                     )}
 
-                    {identityType !== 'nostr' && (
-                      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
-                        <p className="text-xs text-yellow-300">
-                          Hinweis: Der Veranstalter sieht diesen Handle und kontaktiert dich darüber für die Preisübergabe. Bitte gib einen korrekten Handle an.
-                        </p>
-                      </div>
-                    )}
+                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
+                      <p className="text-xs text-yellow-300">
+                        Der Veranstalter sieht diesen Handle und schickt dir darüber deinen persönlichen Teilnahme-Code zu. Bitte gib einen korrekten Handle an.
+                      </p>
+                    </div>
 
                     {resultError && (
                       <div className="text-center text-xs text-red-400 font-bold p-2">{resultError}</div>
@@ -287,75 +263,45 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
             </div>
           )}
 
-          {/* ===== STEP: TOKEN RESULT ===== */}
-          {step === 'result' && resultToken && (
-            <div className="space-y-4 animate-in fade-in text-center">
-              <CheckCircle2 size={64} className="text-green-400 mx-auto" />
-              <h3 className="text-xl font-black text-white">Registrierung erfolgreich!</h3>
-              <p className="text-sm text-neutral-400">
-                Dein persönlicher Teilnahme-Token:
-              </p>
-
-              <div className="bg-black/40 border border-green-500/30 rounded-xl p-4">
-                <div className="font-mono text-lg text-green-300 break-all">{resultToken}</div>
-              </div>
-
-              <p className="text-xs text-neutral-500">
-                Gib diesen Token auf der Turnier-Seite ein um beizutreten. Jeder Token kann nur einmal verwendet werden.
-              </p>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(resultToken);
-                    alert('Token kopiert!');
-                  }}
-                  className="flex-1 px-4 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Copy size={16} /> Kopieren
-                </button>
-                <button
-                  onClick={handleCopyAndContinue}
-                  className="flex-1 px-4 py-3 bg-green-500 text-black rounded-xl font-black hover:bg-green-400 transition-colors"
-                >
-                  Zum Turnier
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ===== STEP: AUTO-JOIN SUCCESS ===== */}
-          {step === 'success' && (
-            <div className="space-y-4 animate-in fade-in text-center">
-              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-green-500">
-                <CheckCircle2 size={40} className="text-green-400" />
-              </div>
-              <h3 className="text-xl font-black text-white">Du bist dabei!</h3>
-              <p className="text-sm text-neutral-400">
-                Du wurdest erfolgreich zum Turnier hinzugefügt.
-              </p>
-            </div>
-          )}
-
-          {/* ===== STEP: PENDING APPROVAL ===== */}
+          {/* ===== STEP: PENDING (Warte auf Genehmigung) ===== */}
           {step === 'pending' && (
             <div className="space-y-4 animate-in fade-in text-center">
-              <div className="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-orange-500">
-                <Shield size={36} className="text-orange-400" />
+              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto border-2 border-green-500">
+                <Shield size={36} className="text-green-400" />
               </div>
-              <h3 className="text-xl font-black text-white">Registrierung eingegangen</h3>
+              <h3 className="text-xl font-black text-white">Registrierung erfolgreich!</h3>
               <p className="text-sm text-neutral-400">
-                Deine Anmeldung muss noch vom Veranstalter genehmigt werden. Du erhältst deinen Token sobald die Genehmigung erteilt wurde.
+                Deine Anmeldung ist beim Veranstalter eingegangen. Nach Prüfung erhältst du deinen persönlichen Teilnahme-Code über deinen hinterlegten Kontaktweg.
               </p>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-left">
+                <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">So geht es weiter</p>
+                <div className="space-y-2 text-xs text-neutral-300">
+                  <div className="flex items-start gap-2">
+                    <span className="text-purple-400 font-bold">1.</span>
+                    <span>Der Veranstalter prüft deine Anmeldung</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-purple-400 font-bold">2.</span>
+                    <span>Du erhältst einen Teilnahme-Code über deinen Handle</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-purple-400 font-bold">3.</span>
+                    <span>Gib den Code in der Turnierübersicht ein um beizutreten</span>
+                  </div>
+                </div>
+              </div>
+
               {tournament?.contact_info && (
                 <div className="bg-white/5 border border-white/10 rounded-xl p-4">
                   <p className="text-xs text-neutral-500 mb-1">Kontakt des Veranstalters:</p>
                   <p className="text-sm text-white font-bold">{tournament.contact_info}</p>
                 </div>
               )}
+
               <button
                 onClick={onBack}
-                className="mt-6 px-6 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-colors"
+                className="mt-4 w-full px-6 py-3 bg-purple-500 text-black rounded-xl font-black hover:bg-purple-400 transition-colors"
               >
                 Zurück zur Übersicht
               </button>

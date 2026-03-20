@@ -25,7 +25,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [generatedToken, setGeneratedToken] = useState(null);
+  const [approveTokenModal, setApproveTokenModal] = useState(null); // { registration, token }
   const [expandedSections, setExpandedSections] = useState({
     pending: true,
     approved: true,
@@ -50,8 +50,29 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  const handleApprove = async (regId) => {
-    await approveRegistration(regId);
+  const handleApproveAndGenerateToken = async (reg) => {
+    // 1. Registrierung genehmigen
+    const { error: approveError } = await approveRegistration(reg.id);
+    if (approveError) {
+      alert('Fehler beim Genehmigen: ' + (approveError.message || ''));
+      return;
+    }
+
+    // 2. Token generieren
+    const { error: tokenError, token } = await createTournamentToken(
+      tournamentId,
+      reg.identity_display,
+      user?.username
+    );
+
+    if (tokenError || !token) {
+      alert('Genehmigt, aber Token konnte nicht generiert werden: ' + (tokenError?.message || ''));
+      await loadData();
+      return;
+    }
+
+    // 3. Token dem Creator zeigen zum Kopieren/Senden
+    setApproveTokenModal({ registration: reg, token });
     await loadData();
   };
 
@@ -67,16 +88,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
       await markPrizeClaimed(prizeId);
     }
     await loadData();
-  };
-
-  const handleGenerateToken = async () => {
-    if (!data?.tournament) return;
-    const { error, token } = await createTournamentToken(data.tournament.id, null, user?.username);
-    if (error) {
-      alert(error.message || 'Fehler');
-      return;
-    }
-    setGeneratedToken(token);
   };
 
   const copyToClipboard = (text) => {
@@ -167,9 +178,9 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
         {reg.status === 'pending' && (
           <>
             <button
-              onClick={() => handleApprove(reg.id)}
-              className="bg-green-500/20 p-2 rounded-lg hover:bg-green-500/30 transition-colors"
-              title="Genehmigen"
+              onClick={() => handleApproveAndGenerateToken(reg)}
+              className="bg-green-500/20 p-2 rounded-lg hover:bg-green-500/30 transition-colors flex items-center gap-1"
+              title="Genehmigen & Token generieren"
             >
               <CheckCircle2 size={16} className="text-green-400" />
             </button>
@@ -184,7 +195,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
         )}
         {reg.status === 'approved' && (
           <span className="text-[10px] text-green-400 font-bold px-2 py-1 bg-green-500/10 rounded-full">
-            <Clock size={10} className="inline mr-1" />Wartet
+            <Clock size={10} className="inline mr-1" />Token gesendet
           </span>
         )}
         {reg.status === 'redeemed' && (
@@ -310,15 +321,11 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
               {inviteUrl && (
                 <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-purple-400 uppercase">Einladungscode</span>
-                    <button
-                      onClick={() => copyToClipboard(tournament.invite_code)}
-                      className="text-purple-300 hover:text-white transition-colors"
-                    >
-                      <Copy size={14} />
-                    </button>
+                    <span className="text-xs font-bold text-purple-400 uppercase">Einladungslink</span>
                   </div>
-                  <div className="font-mono text-lg text-white font-bold mb-2">{tournament.invite_code}</div>
+                  <div className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 mb-3">
+                    <p className="text-xs text-neutral-300 font-mono break-all">{inviteUrl}</p>
+                  </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => copyToClipboard(inviteUrl)}
@@ -341,29 +348,15 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                       <Share2 size={12} /> Teilen
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* Token Generation (für token-Modus) */}
-              {tournament.access_level === 'token' && (
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-neutral-400 uppercase">Tokens vergeben</span>
-                    <button
-                      onClick={handleGenerateToken}
-                      className="bg-purple-500 text-black text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-purple-400 transition-colors flex items-center gap-1"
-                    >
-                      <KeyRound size={12} /> Neuen Token generieren
-                    </button>
-                  </div>
-                  {generatedToken && (
-                    <div className="bg-black/40 border border-purple-500/30 rounded-lg p-3 flex items-center justify-between">
-                      <span className="font-mono text-sm text-purple-300">{generatedToken}</span>
-                      <button onClick={() => copyToClipboard(generatedToken)} className="text-purple-400 hover:text-white ml-2">
+                  <div className="mt-3">
+                    <p className="text-[10px] text-neutral-400 font-bold mb-1">Einladungscode (zum manuellen Eingeben):</p>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-lg text-white font-bold">{tournament.invite_code}</span>
+                      <button onClick={() => copyToClipboard(tournament.invite_code)} className="text-purple-300 hover:text-white">
                         <Copy size={14} />
                       </button>
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 
@@ -414,6 +407,31 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                   )}
                 </div>
               </div>
+
+              {/* Workflow-Hinweis */}
+              {tournament.access_level === 'invite' && (
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">Workflow</p>
+                  <div className="space-y-2 text-xs text-neutral-300">
+                    <div className="flex items-start gap-2">
+                      <span className="text-purple-400 font-bold">1.</span>
+                      <span>Teile den Einladungslink — Interessenten registrieren sich</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-purple-400 font-bold">2.</span>
+                      <span>Prüfe Anmeldungen im Tab "Anmeldungen"</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-purple-400 font-bold">3.</span>
+                      <span>Genehmige → du erhältst einen Token → sende ihn an den Handle</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-purple-400 font-bold">4.</span>
+                      <span>Teilnehmer gibt Token in der App ein → ist im Turnier</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -442,7 +460,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
               ) : (
                 <>
                   {renderRegistrationSection('pending', 'Ausstehend — Genehmigung nötig', 'text-orange-500')}
-                  {renderRegistrationSection('approved', 'Genehmigt — Wartet auf Beitritt', 'text-green-500')}
+                  {renderRegistrationSection('approved', 'Genehmigt — Token gesendet, wartet auf Beitritt', 'text-green-500')}
                   {renderRegistrationSection('redeemed', 'Im Turnier', 'text-purple-500')}
                   {renderRegistrationSection('rejected', 'Abgelehnt', 'text-red-500')}
                 </>
@@ -459,7 +477,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                     <div className="text-center text-neutral-500 text-sm py-10">Noch keine Ergebnisse</div>
                   ) : ranked.map((entry, index) => {
                     const isWinner = tournament.winner && entry.name.toLowerCase() === tournament.winner.toLowerCase();
-                    // Identität aus Registrierungen holen
                     const reg = registrations.find(r =>
                       r.player_username && r.player_username.toLowerCase() === entry.name.toLowerCase()
                     );
@@ -509,7 +526,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                     </div>
                   ) : (
                     (() => {
-                      // Runden gruppieren
                       const rounds = {};
                       bracketMatches.forEach(m => {
                         if (!rounds[m.round_name]) rounds[m.round_name] = [];
@@ -517,11 +533,8 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                       });
 
                       const roundLabels = {
-                        round_of_32: 'Runde der 32',
-                        round_of_16: 'Achtelfinale',
-                        quarter: 'Viertelfinale',
-                        semi: 'Halbfinale',
-                        final: 'Finale',
+                        round_of_32: 'Runde der 32', round_of_16: 'Achtelfinale',
+                        quarter: 'Viertelfinale', semi: 'Halbfinale', final: 'Finale',
                       };
 
                       return Object.entries(rounds).map(([roundName, matches]) => (
@@ -542,37 +555,21 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="flex-1">
-                                    <div className={`text-xs font-bold ${
-                                      match.winner === match.player1 ? 'text-yellow-400' : 'text-white'
-                                    }`}>
+                                    <div className={`text-xs font-bold ${match.winner === match.player1 ? 'text-yellow-400' : 'text-white'}`}>
                                       {match.player1 || '???'}
-                                      {match.player1_score !== null && (
-                                        <span className="text-neutral-400 font-normal ml-2">{match.player1_score} Pkt</span>
-                                      )}
+                                      {match.player1_score !== null && <span className="text-neutral-400 font-normal ml-2">{match.player1_score} Pkt</span>}
                                     </div>
                                     <div className="text-[10px] text-neutral-600 my-0.5">vs</div>
-                                    <div className={`text-xs font-bold ${
-                                      match.winner === match.player2 ? 'text-yellow-400' : 'text-white'
-                                    }`}>
+                                    <div className={`text-xs font-bold ${match.winner === match.player2 ? 'text-yellow-400' : 'text-white'}`}>
                                       {match.player2 || '???'}
-                                      {match.player2_score !== null && (
-                                        <span className="text-neutral-400 font-normal ml-2">{match.player2_score} Pkt</span>
-                                      )}
+                                      {match.player2_score !== null && <span className="text-neutral-400 font-normal ml-2">{match.player2_score} Pkt</span>}
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    {match.status === 'finished' && match.winner && (
-                                      <Crown size={16} className="text-yellow-400" />
-                                    )}
-                                    {match.status === 'ready' && (
-                                      <span className="text-[9px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">Bereit</span>
-                                    )}
-                                    {match.status === 'active' && (
-                                      <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full font-bold">Läuft</span>
-                                    )}
-                                    {match.status === 'pending' && (
-                                      <span className="text-[9px] bg-white/10 text-neutral-500 px-2 py-1 rounded-full font-bold">Wartet</span>
-                                    )}
+                                    {match.status === 'finished' && match.winner && <Crown size={16} className="text-yellow-400" />}
+                                    {match.status === 'ready' && <span className="text-[9px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">Bereit</span>}
+                                    {match.status === 'active' && <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full font-bold">Läuft</span>}
+                                    {match.status === 'pending' && <span className="text-[9px] bg-white/10 text-neutral-500 px-2 py-1 rounded-full font-bold">Wartet</span>}
                                   </div>
                                 </div>
                               </div>
@@ -594,8 +591,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                 <div className="text-center text-neutral-500 text-sm py-10">Keine Preise definiert</div>
               ) : prizes.map((prize, idx) => {
                 const placeEmoji = idx === 0 ? '🏆' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
-
-                // Identität des Gewinners
                 const winnerReg = registrations.find(r =>
                   prize.winner_username && r.player_username
                   && r.player_username.toLowerCase() === prize.winner_username.toLowerCase()
@@ -616,9 +611,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                         <span className="text-sm font-bold text-white">{prize.title}</span>
                       </div>
                       {prize.claimed && (
-                        <span className="text-[9px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">
-                          ✓ Eingelöst
-                        </span>
+                        <span className="text-[9px] bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-bold">✓ Eingelöst</span>
                       )}
                     </div>
 
@@ -634,22 +627,13 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                           <span className="text-sm font-bold text-white">{prize.winner_username}</span>
                         </div>
 
-                        {/* Identität */}
                         {(winnerReg || prize.winner_identity_type) && (
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs">
-                              {identityIcon(winnerReg?.identity_type || prize.winner_identity_type)}
-                            </span>
-                            <span className="text-xs text-neutral-300">
-                              {winnerReg?.identity_display || prize.winner_identity_value || '—'}
-                            </span>
-                            {(winnerReg?.identity_verified) && (
-                              <span className="text-[9px] text-green-400">✓ verifiziert</span>
-                            )}
+                            <span className="text-xs">{identityIcon(winnerReg?.identity_type || prize.winner_identity_type)}</span>
+                            <span className="text-xs text-neutral-300">{winnerReg?.identity_display || prize.winner_identity_value || '—'}</span>
                           </div>
                         )}
 
-                        {/* npub */}
                         {prize.winner_npub && (
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] text-neutral-500">🔑</span>
@@ -660,7 +644,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                           </div>
                         )}
 
-                        {/* Claim Button */}
                         <button
                           onClick={() => handleClaimPrize(prize.id, prize.claimed)}
                           className={`mt-3 w-full py-2 rounded-lg text-xs font-bold transition-colors ${
@@ -685,28 +668,44 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
         </div>
       </div>
 
-      {/* Generated Token Modal */}
-      {generatedToken && (
+      {/* TOKEN MODAL — nach Genehmigung */}
+      {approveTokenModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
-          onClick={() => setGeneratedToken(null)}
+          onClick={() => setApproveTokenModal(null)}
         >
-          <div className="bg-[#1a1a1a] border border-purple-500/30 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+          <div className="bg-[#1a1a1a] border border-green-500/30 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
             <div className="text-center mb-4">
-              <KeyRound size={32} className="text-purple-400 mx-auto mb-2" />
-              <h3 className="text-lg font-black text-white">Neuer Token</h3>
-              <p className="text-xs text-neutral-400 mt-1">Gib diesen Token persönlich an den Teilnehmer weiter</p>
+              <CheckCircle2 size={32} className="text-green-400 mx-auto mb-2" />
+              <h3 className="text-lg font-black text-white">Genehmigt!</h3>
+              <p className="text-xs text-neutral-400 mt-2">
+                Sende diesen Teilnahme-Code an:
+              </p>
+              <div className="mt-2 flex items-center justify-center gap-2">
+                <span className="text-sm">{identityIcon(approveTokenModal.registration.identity_type)}</span>
+                <span className="text-sm font-bold text-white">{approveTokenModal.registration.identity_display}</span>
+              </div>
             </div>
-            <div className="bg-black/40 border border-white/10 rounded-xl p-3 text-center font-mono text-purple-300 text-lg mb-4">
-              {generatedToken}
+
+            <div className="bg-black/40 border border-green-500/30 rounded-xl p-4 text-center mb-4">
+              <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">Teilnahme-Code</p>
+              <div className="font-mono text-xl text-green-300 break-all">{approveTokenModal.token}</div>
             </div>
+
             <div className="flex gap-3">
               <button
-                onClick={() => { copyToClipboard(generatedToken); setGeneratedToken(null); }}
-                className="flex-1 bg-purple-500 text-black font-bold py-3 rounded-xl hover:bg-purple-400 transition-colors"
+                onClick={() => {
+                  copyToClipboard(approveTokenModal.token);
+                  setApproveTokenModal(null);
+                }}
+                className="flex-1 bg-green-500 text-black font-bold py-3 rounded-xl hover:bg-green-400 transition-colors flex items-center justify-center gap-2"
               >
-                Kopieren & Schließen
+                <Copy size={16} /> Kopieren & Schließen
               </button>
             </div>
+
+            <p className="text-[10px] text-neutral-500 text-center mt-3">
+              Der Teilnehmer gibt diesen Code in der App unter "Einladungscode eingeben" ein.
+            </p>
           </div>
         </div>
       )}

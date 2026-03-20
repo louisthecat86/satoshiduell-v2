@@ -1348,11 +1348,10 @@ const normalizeIdentity = (type, value) => {
 
 export const registerForTournament = async (tournamentId, identityType, identityValue, identityVerified = false) => {
   const normalized = normalizeIdentity(identityType, identityValue);
-  if (!normalized) return { data: null, error: new Error('Identität fehlt'), token: null };
+  if (!normalized) return { data: null, error: new Error('Identität fehlt') };
 
   const identHash = await hashValue(normalized);
 
-  // Prüfen ob schon registriert
   const { data: existing } = await supabase
     .from('tournament_registrations')
     .select('*')
@@ -1362,35 +1361,26 @@ export const registerForTournament = async (tournamentId, identityType, identity
 
   if (existing) {
     if (existing.status === 'rejected') {
-      return { data: null, error: new Error('Registrierung wurde abgelehnt'), token: null };
+      return { data: null, error: new Error('Registrierung wurde abgelehnt') };
     }
-    return { data: existing, error: new Error('Du bist bereits registriert'), token: null };
+    return { data: existing, error: new Error('Du bist bereits registriert') };
   }
 
-  // Turnier laden für Zugangs-Prüfung
   const { data: tournament } = await fetchTournamentById(tournamentId);
-  if (!tournament) return { data: null, error: new Error('Turnier nicht gefunden'), token: null };
+  if (!tournament) return { data: null, error: new Error('Turnier nicht gefunden') };
 
   if (!['registration', 'active'].includes(tournament.status)) {
-    return { data: null, error: new Error('Turnier ist nicht offen'), token: null };
+    return { data: null, error: new Error('Turnier ist nicht offen') };
   }
 
   if (tournament.play_until && new Date(tournament.play_until) <= new Date()) {
-    return { data: null, error: new Error('Turnier ist abgelaufen'), token: null };
+    return { data: null, error: new Error('Turnier ist abgelaufen') };
   }
 
-  // Token generieren
-  const token = generateToken();
-  const tokenHash = await hashToken(token);
-
-  // Anzeige-Name
   let displayName = identityValue;
   if (identityType === 'telegram') displayName = `@${normalized}`;
   if (identityType === 'twitter') displayName = `@${normalized}`;
   if (identityType === 'nostr') displayName = normalized.length > 20 ? `${normalized.slice(0, 12)}...${normalized.slice(-8)}` : normalized;
-
-  // Nur public ist auto-approve. Invite und Token brauchen Creator-Genehmigung.
-  const autoApprove = tournament.access_level === 'public';
 
   const { data, error } = await supabase
     .from('tournament_registrations')
@@ -1401,21 +1391,20 @@ export const registerForTournament = async (tournamentId, identityType, identity
       identity_display: displayName,
       identity_verified: identityVerified,
       identity_hash: identHash,
-      token_hash: tokenHash,
-      status: autoApprove ? 'approved' : 'pending',
-      approved_at: autoApprove ? new Date().toISOString() : null,
+      token_hash: null,
+      status: 'pending',
     }])
     .select()
     .single();
 
   if (error) {
-    if (error.code === '23505') { // unique_violation
-      return { data: null, error: new Error('Du bist bereits registriert'), token: null };
+    if (error.code === '23505') {
+      return { data: null, error: new Error('Du bist bereits registriert') };
     }
-    return { data: null, error, token: null };
+    return { data: null, error };
   }
 
-  return { data, error: null, token: autoApprove ? token : null };
+  return { data, error: null };
 };
 
 // Creator genehmigt eine Registrierung
