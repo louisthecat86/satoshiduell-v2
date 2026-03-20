@@ -164,7 +164,7 @@ const DashboardView = ({
       let actionCount = 0;
       if (userName) {
         const { data: regs } = await fetchMyTournamentRegistrations(userName);
-        const approved = (regs || []).filter(r => r.status === 'approved');
+        const approved = (regs || []).filter(r => r.status === 'approved' && r.tournaments && ['registration', 'active'].includes(r.tournaments.status));
         actionCount += approved.length;
 
         // Offene Bracket-Matches prüfen
