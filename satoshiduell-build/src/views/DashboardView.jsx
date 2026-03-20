@@ -7,7 +7,7 @@ import {
   Plus, Trophy, Users, Swords, PlayCircle, History, 
   Medal, Heart, LogOut, Settings 
 } from 'lucide-react';
-import { supabase, fetchUserProfile, getOpenDuelCount, fetchUserGames, recalculateUserStats, fetchWinningTournamentsForUser, fetchTournaments } from '../services/supabase';
+import { supabase, fetchUserProfile, getOpenDuelCount, fetchUserGames, recalculateUserStats, fetchWinningTournamentsForUser, fetchTournaments, fetchMyTournamentRegistrations, fetchBracketMatches } from '../services/supabase';
 
 const DashboardView = ({ 
   onCreateDuel, 
@@ -43,6 +43,7 @@ const DashboardView = ({
   const [showNewGameMenu, setShowNewGameMenu] = useState(false);
   const [tournamentWinCount, setTournamentWinCount] = useState(0);
   const [hasOpenTournaments, setHasOpenTournaments] = useState(false);
+  const [tournamentActionCount, setTournamentActionCount] = useState(0);
   const [latestTournamentWinAt, setLatestTournamentWinAt] = useState(null);
   const seenWinsKey = userName ? `sd_tournament_wins_seen_${userName}` : null;
   
@@ -156,8 +157,46 @@ const DashboardView = ({
   useEffect(() => {
     const fetchOpenTournaments = async () => {
       const { data } = await fetchTournaments();
-      const hasOpen = (data || []).some(tournament => ['registration', 'active'].includes(tournament.status));
-      setHasOpenTournaments(hasOpen);
+      const openTournaments = (data || []).filter(t => ['registration', 'active'].includes(t.status));
+      setHasOpenTournaments(openTournaments.length > 0);
+
+      // Aktionen zählen: genehmigte Registrierungen + offene Bracket-Matches
+      let actionCount = 0;
+      if (userName) {
+        const { data: regs } = await fetchMyTournamentRegistrations(userName);
+        const approved = (regs || []).filter(r => r.status === 'approved');
+        actionCount += approved.length;
+
+        // Offene Bracket-Matches prüfen
+        const activeBrackets = openTournaments.filter(t => t.format === 'bracket' && t.status === 'active');
+        for (const t of activeBrackets) {
+          const isParticipant = (t.participants || []).some(p => (p || '').toLowerCase() === userName.toLowerCase());
+          if (isParticipant) {
+            const { data: matches } = await fetchBracketMatches(t.id);
+            const me = userName.toLowerCase();
+            const myMatch = (matches || []).find(m =>
+              ['ready', 'active'].includes(m.status) &&
+              ((m.player1 || '').toLowerCase() === me || (m.player2 || '').toLowerCase() === me) &&
+              !(((m.player1 || '').toLowerCase() === me && m.player1_score !== null) ||
+                ((m.player2 || '').toLowerCase() === me && m.player2_score !== null))
+            );
+            if (myMatch) actionCount += 1;
+          }
+        }
+
+        // Offene Highscore-Turniere wo man Teilnehmer ist aber noch nicht gespielt hat
+        const activeHighscores = openTournaments.filter(t => t.format === 'highscore' && t.status === 'active');
+        for (const t of activeHighscores) {
+          const isParticipant = (t.participants || []).some(p => (p || '').toLowerCase() === userName.toLowerCase());
+          if (isParticipant) {
+            const scores = t.participant_scores || {};
+            if (scores[userName.toLowerCase()] === undefined || scores[userName.toLowerCase()] === null) {
+              actionCount += 1;
+            }
+          }
+        }
+      }
+      setTournamentActionCount(actionCount);
     };
     fetchOpenTournaments();
     const interval = setInterval(fetchOpenTournaments, 5000);
@@ -266,9 +305,9 @@ const DashboardView = ({
               hasOpenTournaments ? 'shadow-[0_0_55px_rgba(255,255,255,0.35)] border-white/25 animate-pulse' : 'shadow-black/40'
             }`}
           >
-            {tournamentWinCount > 0 && (
-              <span className="absolute -top-2 -right-2 w-7 h-7 bg-green-500 text-white font-bold text-xs flex items-center justify-center rounded-full border-2 border-[#111] shadow-lg z-10">
-                {tournamentWinCount}
+            {(tournamentWinCount > 0 || tournamentActionCount > 0) && (
+              <span className={`absolute -top-2 -right-2 w-7 h-7 ${tournamentActionCount > 0 ? 'bg-orange-500 animate-bounce' : 'bg-green-500'} text-white font-bold text-xs flex items-center justify-center rounded-full border-2 border-[#111] shadow-lg z-10`}>
+                {tournamentActionCount > 0 ? tournamentActionCount : tournamentWinCount}
               </span>
             )}
             <div className="absolute inset-0 rounded-2xl overflow-hidden">
