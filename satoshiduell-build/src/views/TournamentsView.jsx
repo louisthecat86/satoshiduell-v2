@@ -3,6 +3,7 @@ import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
 import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, KeyRound, Swords, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import BracketTree from '../components/ui/BracketTree';
 import { useTranslation } from '../hooks/useTranslation';
 import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
@@ -161,94 +162,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
   const carbonStyle = {
     backgroundImage: ['linear-gradient(120deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 35%, rgba(0,0,0,0) 60%)','linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 60%)','repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 2px, rgba(0,0,0,0.05) 2px 4px)','repeating-linear-gradient(-45deg, rgba(255,255,255,0.03) 0 2px, rgba(0,0,0,0.03) 2px 4px)'].join(', ')
-  };
-
-  // ============================================
-  // BRACKET MATCH CARD
-  // ============================================
-  const MatchCard = ({ match, isMyMatch, me }) => {
-    const [expanded, setExpanded] = useState(false);
-    const isFinished = match.status === 'finished';
-    const isReady = match.status === 'ready' || match.status === 'active';
-    const isPending = match.status === 'pending';
-    const p1IsMe = me && (match.player1 || '').toLowerCase() === me;
-    const p2IsMe = me && (match.player2 || '').toLowerCase() === me;
-
-    const borderClass = isMyMatch && isReady ? 'border-green-500/50 bg-green-500/5 ring-1 ring-green-500/20'
-      : isFinished ? 'border-white/10 bg-white/5'
-      : isReady ? 'border-yellow-500/30 bg-yellow-500/5'
-      : 'border-white/5 bg-white/5 opacity-40';
-
-    const PlayerRow = ({ name, score, timeMs, isWinner, isMe, isLoser }) => (
-      <div className={`flex items-center justify-between py-1.5 px-2 rounded-lg ${isWinner ? 'bg-yellow-500/10' : ''}`}>
-        <div className="flex items-center gap-2">
-          {isWinner && <Crown size={12} className="text-yellow-400" />}
-          <span className={`text-xs font-bold ${isWinner ? 'text-yellow-400' : isLoser ? 'text-neutral-600' : isMe ? 'text-green-300' : 'text-white'}`}>
-            {name || '???'}
-          </span>
-          {isMe && <span className="text-[8px] bg-green-500/20 text-green-400 px-1 py-0.5 rounded font-bold">DU</span>}
-        </div>
-        {score !== null && score !== undefined && (
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-white font-bold">{score} Pkt</span>
-            {timeMs !== null && timeMs !== undefined && (
-              <span className="text-[10px] text-neutral-500">{fmtTime(timeMs)}</span>
-            )}
-          </div>
-        )}
-      </div>
-    );
-
-    return (
-      <div className={`border rounded-xl overflow-hidden ${borderClass}`}>
-        <button onClick={() => isFinished && setExpanded(!expanded)} className="w-full text-left p-3">
-          <PlayerRow
-            name={match.player1} score={match.player1_score} timeMs={match.player1_time_ms}
-            isWinner={match.winner === match.player1} isMe={p1IsMe}
-            isLoser={isFinished && match.winner && match.winner !== match.player1}
-          />
-          <div className="flex items-center gap-2 py-0.5 px-2">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-[9px] text-neutral-600 font-bold">VS</span>
-            <div className="flex-1 h-px bg-white/10" />
-          </div>
-          <PlayerRow
-            name={match.player2} score={match.player2_score} timeMs={match.player2_time_ms}
-            isWinner={match.winner === match.player2} isMe={p2IsMe}
-            isLoser={isFinished && match.winner && match.winner !== match.player2}
-          />
-          {isPending && (
-            <div className="text-center mt-1">
-              <span className="text-[9px] text-neutral-600 italic">Wartet auf vorherige Runde</span>
-            </div>
-          )}
-          {isFinished && (
-            <div className="flex items-center justify-center gap-1 mt-1">
-              <span className="text-[9px] text-neutral-500">Details</span>
-              {expanded ? <ChevronUp size={10} className="text-neutral-500" /> : <ChevronDown size={10} className="text-neutral-500" />}
-            </div>
-          )}
-        </button>
-
-        {expanded && isFinished && (
-          <div className="border-t border-white/5 px-3 py-2 bg-black/20">
-            <div className="grid grid-cols-3 gap-1 text-[9px] text-neutral-500 text-center mb-1">
-              <span>Spieler</span><span>Punkte</span><span>Zeit</span>
-            </div>
-            <div className="grid grid-cols-3 gap-1 text-[10px] text-center">
-              <span className={`font-bold ${match.winner === match.player1 ? 'text-yellow-400' : 'text-white'}`}>{match.player1 || '-'}</span>
-              <span className="text-white">{match.player1_score ?? '-'}</span>
-              <span className="text-neutral-400">{fmtTime(match.player1_time_ms)}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-1 text-[10px] text-center mt-1">
-              <span className={`font-bold ${match.winner === match.player2 ? 'text-yellow-400' : 'text-white'}`}>{match.player2 || '-'}</span>
-              <span className="text-white">{match.player2_score ?? '-'}</span>
-              <span className="text-neutral-400">{fmtTime(match.player2_time_ms)}</span>
-            </div>
-          </div>
-        )}
-      </div>
-    );
   };
 
   // ============================================
@@ -558,7 +471,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             <div className="px-4 mb-4">
               <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
                 <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-3 ml-1">Turnierbaum</h3>
-                <BracketTree matches={bracketMatches} />
+                <BracketTree matches={bracketMatches} currentUser={user?.username} />
               </div>
             </div>
           )}
