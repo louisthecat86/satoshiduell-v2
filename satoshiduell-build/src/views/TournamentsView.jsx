@@ -818,32 +818,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
           </div>
         )}
 
-        {/* Invite Code Eingabe */}
-        <div className="px-4 mb-4">
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Link2 size={16} className="text-purple-400" />
-              <span className="text-xs font-bold text-neutral-400 uppercase">Einladungscode eingeben</span>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inviteCodeInput}
-                onChange={e => setInviteCodeInput(e.target.value.toUpperCase())}
-                placeholder="z.B. A3BK7M2X"
-                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-purple-500/50"
-              />
-              <button
-                onClick={handleJoinByInviteCode}
-                disabled={!inviteCodeInput.trim()}
-                className="bg-purple-500 text-black text-xs font-bold px-4 py-2 rounded-xl hover:bg-purple-400 transition-colors disabled:opacity-40"
-              >
-                Beitreten
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* Tournament List */}
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 scrollbar-hide">
           {loading && (
