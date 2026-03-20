@@ -653,6 +653,7 @@ const handleTournamentGameEnd = async (result) => {
            onTokenReceived={(tournamentId, token) => {
              setTournamentRegistration(null);
              navigate('tournaments');
+        // Tournament wird in TournamentsView automatisch geladen
            }}
          />
        )}

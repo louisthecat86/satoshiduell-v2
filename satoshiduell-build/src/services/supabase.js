@@ -1389,8 +1389,8 @@ export const registerForTournament = async (tournamentId, identityType, identity
   if (identityType === 'twitter') displayName = `@${normalized}`;
   if (identityType === 'nostr') displayName = normalized.length > 20 ? `${normalized.slice(0, 12)}...${normalized.slice(-8)}` : normalized;
 
-  // Auto-approve bei public und invite
-  const autoApprove = tournament.access_level !== 'token';
+  // Nur public ist auto-approve. Invite und Token brauchen Creator-Genehmigung.
+  const autoApprove = tournament.access_level === 'public';
 
   const { data, error } = await supabase
     .from('tournament_registrations')

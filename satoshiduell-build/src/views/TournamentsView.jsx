@@ -4,8 +4,7 @@ import Button from '../components/ui/Button';
 import { ArrowLeft, Trophy, Users, Calendar, Crown, RefreshCw, Trash2, KeyRound, Timer, Share2, Shield, LayoutGrid, Link2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { addTournamentParticipant, createTournamentToken, deleteTournament, fetchTournaments, fetchTournamentPrizes, finalizeTournamentIfReady, redeemTournamentToken, redeemRegistrationToken, getTournamentImageUrl } from '../services/supabase';
-import { formatTime } from '../utils/formatters';
+import { addTournamentParticipant, createTournamentToken, deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchTournamentByInviteCode, finalizeTournamentIfReady, redeemTournamentToken, redeemRegistrationToken, getTournamentImageUrl } from '../services/supabase';import { formatTime } from '../utils/formatters';
 
 const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpenAdmin, onOpenRegistration }) => {
   const { t } = useTranslation();
@@ -22,6 +21,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const [joinError, setJoinError] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
   const [generatedToken, setGeneratedToken] = useState(null);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
 
   useEffect(() => {
     if (user?.username) {
@@ -206,6 +206,23 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     setGeneratedToken({ tournamentId: tournament.id, token });
   };
 
+  const handleJoinByInviteCode = async () => {
+    if (!inviteCodeInput.trim() || !user) return;
+    
+    // Turnier per Code finden
+    const { data: tournament, error } = await fetchTournamentByInviteCode(inviteCodeInput.trim());
+    if (error || !tournament) {
+      alert('Ungültiger Einladungscode');
+      return;
+    }
+
+    // Zur Registration weiterleiten
+    if (onOpenRegistration) {
+      onOpenRegistration(tournament.id, inviteCodeInput.trim());
+    }
+    setInviteCodeInput('');
+  };
+
   const statusLabel = (status) => {
     if (status === 'registration') return t('tournament_status_registration');
     if (status === 'active') return t('tournament_status_active');
@@ -219,9 +236,17 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     return 'Highscore';
   };
 
-  const visibleTournaments = localCanCreate
-    ? tournaments
-    : tournaments.filter(tournament => ['registration', 'active', 'finished'].includes(tournament.status));
+  const visibleTournaments = tournaments.filter(tournament => {
+    // Creator und Admin sehen alles
+    if (localCanCreate || user?.is_admin) return true;
+    // Nur registration/active/finished
+    if (!['registration', 'active', 'finished'].includes(tournament.status)) return false;
+    // Invite und Token Turniere: nur sichtbar wenn man bereits Teilnehmer ist
+    if (tournament.access_level === 'invite' || tournament.access_level === 'token') {
+      return isParticipant(tournament);
+    }
+    return true;
+  });
 
   const getPlayUntil = (tournament) => tournament?.play_until || null;
 
@@ -792,6 +817,32 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             </div>
           </div>
         )}
+
+        {/* Invite Code Eingabe */}
+        <div className="px-4 mb-4">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Link2 size={16} className="text-purple-400" />
+              <span className="text-xs font-bold text-neutral-400 uppercase">Einladungscode eingeben</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inviteCodeInput}
+                onChange={e => setInviteCodeInput(e.target.value.toUpperCase())}
+                placeholder="z.B. A3BK7M2X"
+                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-purple-500/50"
+              />
+              <button
+                onClick={handleJoinByInviteCode}
+                disabled={!inviteCodeInput.trim()}
+                className="bg-purple-500 text-black text-xs font-bold px-4 py-2 rounded-xl hover:bg-purple-400 transition-colors disabled:opacity-40"
+              >
+                Beitreten
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* Tournament List */}
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 scrollbar-hide">

@@ -110,7 +110,7 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
     }
 
     if (token) {
-      // Auto-Join: Token direkt einlösen
+      // Token sofort einlösen (nur bei auto-approve / public)
       if (user?.username) {
         const { data: joinData, error: joinError } = await redeemRegistrationToken(
           tournament.id, token, user.username
@@ -123,11 +123,10 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
           return;
         }
       }
-      // Fallback: Token anzeigen falls Auto-Join fehlschlägt
+      // Fallback: Token anzeigen
       setResultToken(token);
       setStep('result');
     } else if (data?.status === 'pending') {
-      setStep('pending');
     } else {
       setResultError('Registrierung eingegangen, aber kein Token erhalten. Bitte kontaktiere den Veranstalter.');
     }
