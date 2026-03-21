@@ -2241,6 +2241,7 @@ export const createTournamentToken = async (tournamentId, issuedTo = null, creat
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${supabaseKey}`,
+        'apikey': supabaseKey,
       },
       body: JSON.stringify({
         action: 'create',
@@ -2270,6 +2271,7 @@ export const redeemTournamentToken = async (tournamentId, token, username) => {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${supabaseKey}`,
+        'apikey': supabaseKey,
       },
       body: JSON.stringify({
         action: 'redeem',
