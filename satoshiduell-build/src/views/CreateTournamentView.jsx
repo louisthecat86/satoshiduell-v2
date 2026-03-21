@@ -88,11 +88,13 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
 
   const getDefaultQuestionsPerRound = (maxP) => {
     switch (parseInt(maxP)) {
-      case 4:  return { semi: 5, final: 10 };
-      case 8:  return { quarter: 5, semi: 7, final: 10 };
-      case 16: return { round_of_16: 5, quarter: 5, semi: 7, final: 10 };
-      case 32: return { round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
-      default: return { semi: 5, final: 10 };
+      case 4:   return { semi: 5, final: 10 };
+      case 8:   return { quarter: 5, semi: 7, final: 10 };
+      case 16:  return { round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+      case 32:  return { round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+      case 64:  return { round_of_64: 3, round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+      case 128: return { round_of_128: 3, round_of_64: 3, round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+      default:  return { semi: 5, final: 10 };
     }
   };
 
@@ -103,7 +105,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     return `${index + 1}. Platz`;
   };
 
-  const bracketSizes = [4, 8, 16, 32];
+  const bracketSizes = [4, 8, 16, 32, 64, 128];
 
   const validate = () => {
     if (!form.name.trim()) { alert('Bitte Turniername eingeben'); return false; }
@@ -368,7 +370,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                 <>
                   <div>
                     <label className={labelClass}>Spieleranzahl</label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {bracketSizes.map(size => (
                         <button
                           key={size}
@@ -407,6 +409,8 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                       <div className="space-y-2">
                         {Object.entries(form.questionsPerRound).map(([round, count]) => {
                           const roundLabels = {
+                            round_of_128: 'Runde der 128',
+                            round_of_64: 'Runde der 64',
                             round_of_32: 'Runde der 32',
                             round_of_16: 'Achtelfinale',
                             quarter: 'Viertelfinale',

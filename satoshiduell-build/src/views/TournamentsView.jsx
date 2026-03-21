@@ -8,6 +8,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl, fetchProfiles } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 import { getCryptoPunkAvatar } from '../utils/avatar';
+import { SocialIcon } from '../components/ui/SocialIcons';
 
 const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpenAdmin, onOpenRegistration }) => {
   const { t } = useTranslation();
@@ -49,6 +50,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const loadSelectedTournamentData = useCallback(async (tournament) => {
     if (!tournament) { setSelectedPrizes([]); setBracketMatches([]); setAvatarMap({}); return; }
 
+    // Turnier frisch von DB laden (damit bracket-status aktuell ist)
     const { data: fresh } = await fetchTournamentById(tournament.id);
     if (fresh) {
       setSelectedTournament(fresh);
@@ -145,7 +147,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const formatPlayUntil = (v) => { if (!v) return '-'; const d = new Date(v); return isNaN(d.getTime()) ? '-' : d.toLocaleString(); };
   const questionCount = (t) => t?.question_count || 0;
   const maxPlayersLabel = (t) => t?.max_players ? t.max_players : '∞';
-  const roundDisplayName = (n) => ({ round_of_32: 'Runde der 32', round_of_16: 'Achtelfinale', quarter: 'Viertelfinale', semi: 'Halbfinale', final: '🏆 Finale' }[n] || n);
+  const roundDisplayName = (n) => ({ round_of_128: 'Runde der 128', round_of_64: 'Runde der 64', round_of_32: 'Runde der 32', round_of_16: 'Achtelfinale', quarter: 'Viertelfinale', semi: 'Halbfinale', final: '🏆 Finale' }[n] || n);
 
   const getResultsList = (tournament) => {
     const participants = Array.isArray(tournament?.participants) ? tournament.participants : [];
@@ -463,7 +465,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                       <div className="flex-1">
                         <div className="text-xs font-bold text-white">{prize.title}</div>
                         {prize.description && <div className="text-[10px] text-neutral-400 mt-0.5">{prize.description}</div>}
-                        {prize.winner_username && <div className="text-[10px] text-yellow-400 mt-0.5"><Crown size={10} className="inline mr-1" />{prize.winner_username}</div>}
+                        {prize.winner_username && (
+                          <div className="text-[10px] text-yellow-400 mt-0.5 flex items-center gap-1.5">
+                            <div className="w-4 h-4 rounded overflow-hidden bg-neutral-900 flex-shrink-0">
+                              <img src={avatarMap[prize.winner_username.toLowerCase()] || getCryptoPunkAvatar(prize.winner_username)} alt="" className="w-full h-full object-cover" />
+                            </div>
+                            <Crown size={10} className="inline" />{prize.winner_username}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -515,7 +524,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             <div className="px-4 mb-6">
               <div className={`${isWinner ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'} border rounded-2xl p-4 text-center`}>
                 <div className="w-14 h-14 rounded-xl border-2 border-yellow-500/50 overflow-hidden bg-neutral-900 mx-auto mb-2 shadow-[0_0_15px_rgba(234,179,8,0.3)]">
-                  <img src={avatarMap[selectedTournament.winner.toLowerCase()] || getCryptoPunkAvatar(selectedTournament.winner)} alt="" className="w-full h-full object-cover" />
+                  <img src={avatarMap[(selectedTournament.winner || '').toLowerCase()] || getCryptoPunkAvatar(selectedTournament.winner)} alt="" className="w-full h-full object-cover" />
                 </div>
                 <Crown size={20} className="text-yellow-400 mx-auto mb-1" />
                 {isWinner ? (

@@ -1728,26 +1728,32 @@ export const finalizeTournamentIfReady = async (tournamentId) => {
 
 const getRoundsForSize = (maxPlayers) => {
   switch (maxPlayers) {
-    case 4:  return ['semi', 'final'];
-    case 8:  return ['quarter', 'semi', 'final'];
-    case 16: return ['round_of_16', 'quarter', 'semi', 'final'];
-    case 32: return ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
-    default: return ['semi', 'final'];
+    case 4:   return ['semi', 'final'];
+    case 8:   return ['quarter', 'semi', 'final'];
+    case 16:  return ['round_of_16', 'quarter', 'semi', 'final'];
+    case 32:  return ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
+    case 64:  return ['round_of_64', 'round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
+    case 128: return ['round_of_128', 'round_of_64', 'round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
+    default:  return ['semi', 'final'];
   }
 };
 
 const getDefaultQuestionsPerRound = (maxPlayers) => {
   switch (maxPlayers) {
-    case 4:  return { semi: 5, final: 10 };
-    case 8:  return { quarter: 5, semi: 7, final: 10 };
-    case 16: return { round_of_16: 5, quarter: 5, semi: 7, final: 10 };
-    case 32: return { round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
-    default: return { semi: 5, final: 10 };
+    case 4:   return { semi: 5, final: 10 };
+    case 8:   return { quarter: 5, semi: 7, final: 10 };
+    case 16:  return { round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+    case 32:  return { round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+    case 64:  return { round_of_64: 3, round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+    case 128: return { round_of_128: 3, round_of_64: 3, round_of_32: 3, round_of_16: 5, quarter: 5, semi: 7, final: 10 };
+    default:  return { semi: 5, final: 10 };
   }
 };
 
 export const getRoundDisplayName = (roundName) => {
   const names = {
+    round_of_128: 'Runde der 128',
+    round_of_64: 'Runde der 64',
     round_of_32: 'Runde der 32',
     round_of_16: 'Achtelfinale',
     quarter: 'Viertelfinale',
@@ -1929,7 +1935,7 @@ const advanceBracketWinner = async (finishedMatch) => {
 
   if (!allMatches) return;
 
-  const ROUND_ORDER = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
+  const ROUND_ORDER = ['round_of_128', 'round_of_64', 'round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
   const roundNames = [];
   const seen = new Set();
   const sortedByRound = [...allMatches].sort((a, b) => {

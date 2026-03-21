@@ -3,6 +3,7 @@ import Background from '../components/ui/Background';
 import { ArrowLeft, Shield, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { registerForTournament, fetchTournamentByInviteCode, fetchTournamentById } from '../services/supabase';
+import { SocialIcon } from '../components/ui/SocialIcons';
 
 const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenReceived }) => {
   const { user } = useAuth();
@@ -32,10 +33,10 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
   }, [tournamentId, inviteCode]);
 
   const identityOptions = [
-    { type: 'nostr', icon: '🔑', label: 'Nostr (npub)', desc: 'Kryptographisch verifiziert via Amber/NIP-55', placeholder: 'npub1...' },
-    { type: 'telegram', icon: '✈️', label: 'Telegram', desc: 'Dein Telegram-Handle', placeholder: '@dein_handle' },
-    { type: 'twitter', icon: '🐦', label: 'X / Twitter', desc: 'Dein X/Twitter-Handle', placeholder: '@dein_handle' },
-    { type: 'email', icon: '📧', label: 'E-Mail', desc: 'Deine E-Mail-Adresse', placeholder: 'name@example.com' },
+    { type: 'nostr', label: 'Nostr (npub)', desc: 'Kryptographisch verifiziert via Amber/NIP-55', placeholder: 'npub1...' },
+    { type: 'telegram', label: 'Telegram', desc: 'Dein Telegram-Handle', placeholder: '@dein_handle' },
+    { type: 'twitter', label: 'X / Twitter', desc: 'Dein X/Twitter-Handle', placeholder: '@dein_handle' },
+    { type: 'email', label: 'E-Mail', desc: 'Deine E-Mail-Adresse', placeholder: 'name@example.com' },
   ];
 
   const handleSelectIdentity = (type) => {
@@ -139,7 +140,9 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                 {identityOptions.map(option => (
                   <button key={option.type} onClick={() => handleSelectIdentity(option.type)}
                     className="w-full p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-purple-500/30 transition-all text-left flex items-start gap-3">
-                    <span className="text-2xl mt-0.5">{option.icon}</span>
+                    <div className="mt-1 flex-shrink-0">
+                      <SocialIcon type={option.type} size={24} />
+                    </div>
                     <div>
                       <div className="text-sm font-bold text-white">{option.label}</div>
                       <div className="text-[10px] text-neutral-400 mt-1">{option.desc}</div>
@@ -158,7 +161,9 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                 return (
                   <>
                     <div className="text-center mb-4">
-                      <span className="text-4xl">{option.icon}</span>
+                      <div className="flex justify-center mb-3">
+                        <SocialIcon type={identityType} size={40} />
+                      </div>
                       <h3 className="text-lg font-bold text-white mt-2">{option.label}</h3>
                     </div>
                     <input type="text" value={identityValue} onChange={e => setIdentityValue(e.target.value)}
