@@ -2527,6 +2527,7 @@ export const deleteRegistration = async (registrationId) => {
 
   if (fetchError || !reg) return { data: null, error: fetchError };
 
+  // Wenn schon beigetreten → auch aus Turnier entfernen
   if (reg.status === 'redeemed' && reg.player_username) {
     const removeResult = await removeTournamentParticipant(reg.tournament_id, reg.player_username);
     if (removeResult.error) {
@@ -2534,14 +2535,12 @@ export const deleteRegistration = async (registrationId) => {
     }
   }
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('tournament_registrations')
     .delete()
-    .eq('id', registrationId)
-    .select()
-    .single();
+    .eq('id', registrationId);
 
-  return { data, error };
+  return { data: reg, error };
 };
 
 /**
