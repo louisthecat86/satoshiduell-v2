@@ -2233,65 +2233,60 @@ export const fetchTournamentAdminData = async (tournamentId) => {
 // BACKWARD COMPAT: Funktionen die in TournamentsView genutzt werden
 // ============================================================
 
-// createTournamentToken bleibt für access_level='token' erhalten
 export const createTournamentToken = async (tournamentId, issuedTo = null, createdBy = null) => {
-  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
-  if (fetchError || !tournament) return { data: null, error: fetchError || new Error('Turnier nicht gefunden') };
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/tournament-tokens`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        action: 'create',
+        tournamentId,
+        issuedTo,
+        createdBy,
+      }),
+    });
 
-  if (tournament.max_players && tournament.max_players > 0) {
-    const { count, error: countError } = await supabase
-      .from('tournament_tokens')
-      .select('*', { count: 'exact', head: true })
-      .eq('tournament_id', tournamentId);
+    const result = await response.json();
 
-    if (countError) return { data: null, error: countError };
-    if ((count || 0) >= (tournament.max_players || 0)) {
-      return { data: null, error: new Error('Token-Limit erreicht') };
+    if (!result.ok) {
+      return { data: null, error: new Error(result.error || 'Token-Erstellung fehlgeschlagen'), token: null };
     }
+
+    return { data: result.data, error: null, token: result.token };
+  } catch (err) {
+    return { data: null, error: err, token: null };
   }
-
-  const token = generateToken();
-  const tokenHash = await hashToken(token);
-
-  const { data, error } = await supabase
-    .from('tournament_tokens')
-    .insert([{
-      tournament_id: tournamentId,
-      token_hash: tokenHash,
-      issued_to: issuedTo || null,
-      created_by: createdBy || null,
-    }])
-    .select()
-    .single();
-
-  return { data, error, token };
 };
 
-// redeemTournamentToken für alten token-flow
 export const redeemTournamentToken = async (tournamentId, token, username) => {
-  if (!token) return { data: null, error: new Error('Token fehlt') };
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/tournament-tokens`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        action: 'redeem',
+        tournamentId,
+        token,
+        username,
+      }),
+    });
 
-  const tokenHash = await hashToken(token);
-  const { data: tokenRow, error: fetchError } = await supabase
-    .from('tournament_tokens')
-    .select('*')
-    .eq('tournament_id', tournamentId)
-    .eq('token_hash', tokenHash)
-    .is('used_at', null)
-    .maybeSingle();
+    const result = await response.json();
 
-  if (fetchError || !tokenRow) {
-    return { data: null, error: fetchError || new Error('Token ungültig') };
+    if (!result.ok) {
+      return { data: null, error: new Error(result.error || 'Token ungültig') };
+    }
+
+    return { data: result.data, error: null };
+  } catch (err) {
+    return { data: null, error: err };
   }
-
-  const { error: updateError } = await supabase
-    .from('tournament_tokens')
-    .update({ used_by: username || null, used_at: new Date().toISOString() })
-    .eq('id', tokenRow.id);
-
-  if (updateError) return { data: null, error: updateError };
-
-  return addTournamentParticipant(tournamentId, username);
 };
 
 // Winning tournaments für Dashboard
