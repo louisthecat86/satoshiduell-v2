@@ -2234,6 +2234,7 @@ export const fetchTournamentAdminData = async (tournamentId) => {
 // ============================================================
 
 export const createTournamentToken = async (tournamentId, issuedTo = null, createdBy = null) => {
+  console.log('🎫 Create Token:', { tournamentId, issuedTo, createdBy });
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/tournament-tokens`, {
       method: 'POST',
@@ -2262,6 +2263,7 @@ export const createTournamentToken = async (tournamentId, issuedTo = null, creat
 };
 
 export const redeemTournamentToken = async (tournamentId, token, username) => {
+  console.log('🔑 Redeem:', { tournamentId, token: token?.slice(0, 8) + '...', username });
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/tournament-tokens`, {
       method: 'POST',
