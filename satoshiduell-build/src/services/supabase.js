@@ -2234,24 +2234,19 @@ export const fetchTournamentAdminData = async (tournamentId) => {
 // ============================================================
 
 export const createTournamentToken = async (tournamentId, issuedTo = null, createdBy = null) => {
-  console.log('🎫 Create Token:', { tournamentId, issuedTo, createdBy });
   try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/tournament-tokens`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${supabaseKey}`,
-        'apikey': supabaseKey,
-      },
-      body: JSON.stringify({
+    const { data: result, error } = await supabase.functions.invoke('tournament-tokens', {
+      body: {
         action: 'create',
         tournamentId,
         issuedTo,
         createdBy,
-      }),
+      },
     });
 
-    const result = await response.json();
+    if (error) {
+      return { data: null, error, token: null };
+    }
 
     if (!result.ok) {
       return { data: null, error: new Error(result.error || 'Token-Erstellung fehlgeschlagen'), token: null };
@@ -2266,22 +2261,18 @@ export const createTournamentToken = async (tournamentId, issuedTo = null, creat
 export const redeemTournamentToken = async (tournamentId, token, username) => {
   console.log('🔑 Redeem:', { tournamentId, token: token?.slice(0, 8) + '...', username });
   try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/tournament-tokens`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${supabaseKey}`,
-        'apikey': supabaseKey,
-      },
-      body: JSON.stringify({
+    const { data: result, error } = await supabase.functions.invoke('tournament-tokens', {
+      body: {
         action: 'redeem',
         tournamentId,
         token,
         username,
-      }),
+      },
     });
 
-    const result = await response.json();
+    if (error) {
+      return { data: null, error };
+    }
 
     if (!result.ok) {
       return { data: null, error: new Error(result.error || 'Token ungültig') };
