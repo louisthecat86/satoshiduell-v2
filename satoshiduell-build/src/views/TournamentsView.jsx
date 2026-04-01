@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
 import BracketTree from '../components/ui/BracketTree';
-import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, KeyRound, Swords, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, Swords, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, redeemTournamentToken, getTournamentImageUrl, fetchProfiles } from '../services/supabase';
+import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, getTournamentImageUrl, fetchProfiles, generateBracketMatches } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 import { getCryptoPunkAvatar } from '../utils/avatar';
 import { SocialIcon } from '../components/ui/SocialIcons';
+
 
 const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpenAdmin, onOpenRegistration }) => {
   const { t } = useTranslation();
@@ -22,10 +23,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const [myRegistrations, setMyRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
-  const [tokenModal, setTokenModal] = useState(null);
-  const [tokenInput, setTokenInput] = useState('');
-  const [tokenError, setTokenError] = useState('');
-  const [tokenLoading, setTokenLoading] = useState(false);
   const [avatarMap, setAvatarMap] = useState({});
 
   useEffect(() => { if (user?.username) refreshUser(user.username); }, []);
@@ -63,6 +60,15 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     if ((fresh || tournament).format === 'bracket') {
       const { data: matches } = await fetchBracketMatches(tournament.id);
       setBracketMatches(matches || []);
+
+      // Sicherheitsnetz: Wenn Bracket aktiv ist aber keine Matches existieren → generieren
+      const t = fresh || tournament;
+      if (t.status === 'active' && (!matches || matches.length === 0) && t.participants?.length >= 2) {
+        console.log('⚠️ Bracket aktiv aber keine Matches — generiere jetzt...');
+        await generateBracketMatches(t);
+        const { data: newMatches } = await fetchBracketMatches(tournament.id);
+        setBracketMatches(newMatches || []);
+      }
     }
 
     // Avatare laden
@@ -126,17 +132,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
   const handleDeleteTournament = async (id) => { await deleteTournament(id); setDeleteConfirm(null); setSelectedTournament(null); await loadData(); };
 
-  const handleRedeemToken = async (tid) => {
-    if (!tokenInput.trim() || !user?.username) { setTokenError('Bitte Token eingeben'); return; }
-    setTokenLoading(true); setTokenError('');
-    const { data, error } = await redeemTournamentToken(tid, tokenInput.trim(), user.username);
-    setTokenLoading(false);
-    if (error) { setTokenError('Token ungültig oder bereits verwendet'); return; }
-    setTokenModal(null); setTokenInput('');
-    if (data) { setSelectedTournament(data); setTournaments(prev => prev.map(t => t.id === data.id ? data : t)); }
-    await loadData();
-  };
-
   // Bracket nach dem Spielen neu laden
   const handleStartTournamentWrapped = (tournament) => {
     if (onStartTournament) onStartTournament(tournament);
@@ -194,30 +189,6 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                 <button onClick={() => setDeleteConfirm(null)} className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white font-bold hover:bg-white/10">Abbrechen</button>
                 <button onClick={() => handleDeleteTournament(deleteConfirm.id)} className="flex-1 px-4 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 flex items-center justify-center gap-2">
                   <Trash2 size={18} /> Löschen</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {tokenModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
-          <div className="bg-[#1a1a1a] border border-green-500/30 rounded-2xl max-w-sm w-full p-6">
-            <div className="flex flex-col gap-4">
-              <div className="text-center">
-                <KeyRound size={32} className="text-green-400 mx-auto mb-2" />
-                <h3 className="text-xl font-black text-white">Teilnahme-Code eingeben</h3>
-              </div>
-              <input type="text" value={tokenInput} onChange={e => setTokenInput(e.target.value)}
-                placeholder="z.B. T-a1b2c3d4e5..." autoFocus
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white font-mono outline-none focus:border-green-500/50" />
-              {tokenError && <div className="text-xs text-red-400 font-bold text-center">{tokenError}</div>}
-              <div className="flex gap-3">
-                <button onClick={() => { setTokenModal(null); setTokenInput(''); setTokenError(''); }}
-                  className="flex-1 px-4 py-3 rounded-xl bg-white/5 text-white font-bold hover:bg-white/10">Abbrechen</button>
-                <button onClick={() => handleRedeemToken(tokenModal.tournamentId)}
-                  disabled={tokenLoading || !tokenInput.trim()}
-                  className="flex-1 px-4 py-3 rounded-xl bg-green-500 text-black font-bold hover:bg-green-400 disabled:opacity-60">
-                  {tokenLoading ? 'Prüfe...' : 'Beitreten'}</button>
               </div>
             </div>
           </div>
@@ -287,7 +258,8 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
           {/* Registrierung für Nicht-Teilnehmer */}
           {!amParticipant && !amCreator && (
             <div className="px-4 mb-4">
-              {!myReg && selectedTournament.status !== 'finished' && (
+              {/* Noch nicht registriert */}
+              {!myReg && selectedTournament.status !== 'finished' && selectedTournament.status !== 'archived' && (
                 <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 text-center">
                   <Trophy size={24} className="text-purple-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-white mb-2">An diesem Turnier teilnehmen?</p>
@@ -295,22 +267,29 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                     className="w-full bg-purple-500 hover:bg-purple-400 text-black font-black py-3">Registrieren</Button>
                 </div>
               )}
+              {/* Registrierung wird geprüft */}
               {myReg?.status === 'pending' && (
                 <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 text-center">
                   <Clock size={24} className="text-orange-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-white mb-1">Registrierung wird geprüft</p>
-                  <p className="text-xs text-neutral-400">Du erhältst deinen Code über {myReg.identity_display}.</p>
+                  <p className="text-xs text-neutral-400">Der Veranstalter prüft deine Anmeldung. Du wirst automatisch hinzugefügt sobald du genehmigt wirst.</p>
                 </div>
               )}
+              {/* Genehmigt (Backward Compat: Falls noch alter Token-Flow) */}
               {myReg?.status === 'approved' && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-4 text-center">
-                  <KeyRound size={24} className="text-green-400 mx-auto mb-2" />
+                  <CheckCircle2 size={24} className="text-green-400 mx-auto mb-2" />
                   <p className="text-sm font-bold text-white mb-1">Registrierung genehmigt!</p>
-                  <button onClick={() => { setTokenInput(''); setTokenError(''); setTokenModal({ tournamentId: selectedTournament.id }); }}
-                    className="w-full mt-3 bg-green-500 text-black font-black py-3 rounded-xl hover:bg-green-400 flex items-center justify-center gap-2">
-                    <KeyRound size={18} /> Code eingeben</button>
+                  <p className="text-xs text-neutral-400">Du wurdest genehmigt. Lade die Seite neu um dem Turnier beizutreten.</p>
+                  <button
+                    onClick={() => loadSelectedTournamentData(selectedTournament)}
+                    className="w-full mt-3 bg-green-500 text-black font-black py-3 rounded-xl hover:bg-green-400 flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw size={18} /> Aktualisieren
+                  </button>
                 </div>
               )}
+              {/* Abgelehnt */}
               {myReg?.status === 'rejected' && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 text-center">
                   <XCircle size={24} className="text-red-400 mx-auto mb-2" />
@@ -551,7 +530,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const RegistrationBadge = ({ registration }) => {
     if (!registration) return null;
     if (registration.status === 'pending') return <div className="flex items-center gap-1 text-[10px] text-orange-400 font-bold"><Clock size={10} /> Wird geprüft</div>;
-    if (registration.status === 'approved') return <div className="flex items-center gap-1 text-[10px] text-green-400 font-bold"><KeyRound size={10} /> Code eingeben</div>;
+    if (registration.status === 'approved') return <div className="flex items-center gap-1 text-[10px] text-green-400 font-bold"><CheckCircle2 size={10} /> Genehmigt</div>;
     if (registration.status === 'rejected') return <div className="flex items-center gap-1 text-[10px] text-red-400 font-bold"><XCircle size={10} /> Abgelehnt</div>;
     return null;
   };
