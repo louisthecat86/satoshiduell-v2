@@ -1464,7 +1464,21 @@ export const approveAndAddParticipant = async (registrationId, createdBy) => {
       return { data: null, error: new Error(result.error || 'Genehmigung fehlgeschlagen') };
     }
 
-    return { data: result.data, error: null };
+    // Bracket-Matches generieren wenn Turnier gerade aktiv geworden ist
+    const tournament = result.data;
+    if (tournament?.format === 'bracket' && tournament?.status === 'active') {
+      const { data: existingMatches } = await supabase
+        .from('tournament_bracket_matches')
+        .select('id')
+        .eq('tournament_id', tournament.id)
+        .limit(1);
+
+      if (!existingMatches || existingMatches.length === 0) {
+        await generateBracketMatches(tournament);
+      }
+    }
+
+    return { data: tournament, error: null };
   } catch (err) {
     return { data: null, error: err };
   }
