@@ -2,13 +2,13 @@
 // Edge Function: tournament-tokens
 // Pfad: supabase/functions/tournament-tokens/index.ts
 // ============================================================
-// Zwei Aktionen:
+// Drei Aktionen:
+//   POST { action: 'approve', registrationId, createdBy }
 //   POST { action: 'create', tournamentId, issuedTo, createdBy }
 //   POST { action: 'redeem', tournamentId, token, username }
 //
-// Nur diese Edge Function darf Tokens erstellen und einlösen.
-// Der Client nutzt den anon-Key um die Function aufzurufen,
-// die Function nutzt intern den service_role-Key.
+// 'approve' = neuer Flow: Genehmigen → Spieler wird direkt aufgenommen
+// 'create' + 'redeem' = alter Token-Flow (Backward Compat)
 // ============================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -50,133 +50,99 @@ function generateToken(): string {
   return `T-${hex}`;
 }
 
-// ── ACTION: Create Token ──
+// ══════════════════════════════════════
+// ACTION: Approve (NEUER FLOW)
+// Genehmigt Registrierung + fügt Spieler direkt ins Turnier ein
+// ══════════════════════════════════════
 
-async function handleCreate(tournamentId: number, issuedTo: string | null, createdBy: string | null) {
-  // Turnier laden & prüfen
-  const { data: tournament, error: fetchError } = await supabase
-    .from('tournaments')
-    .select('id, max_players, creator, status')
-    .eq('id', tournamentId)
-    .single();
-
-  if (fetchError || !tournament) {
-    return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
+async function handleApprove(registrationId: number, createdBy: string) {
+  if (!registrationId || !createdBy) {
+    return jsonResponse({ ok: false, error: 'registrationId und createdBy erforderlich' }, 400);
   }
 
-  // Nur Creator darf Tokens erstellen
-  if (!createdBy || tournament.creator?.toLowerCase() !== createdBy.toLowerCase()) {
-    return jsonResponse({ ok: false, error: 'Nur der Turnier-Creator darf Tokens erstellen' }, 403);
-  }
-
-  // Token-Limit prüfen
-  if (tournament.max_players && tournament.max_players > 0) {
-    const { count, error: countError } = await supabase
-      .from('tournament_tokens')
-      .select('*', { count: 'exact', head: true })
-      .eq('tournament_id', tournamentId);
-
-    if (countError) {
-      return jsonResponse({ ok: false, error: countError.message }, 500);
-    }
-    if ((count || 0) >= tournament.max_players) {
-      return jsonResponse({ ok: false, error: 'Token-Limit erreicht' }, 400);
-    }
-  }
-
-  // Token generieren und hashen
-  const token = generateToken();
-  const tokenHash = await hashValue(token);
-
-  const { data, error } = await supabase
-    .from('tournament_tokens')
-    .insert([
-      {
-        tournament_id: tournamentId,
-        token_hash: tokenHash,
-        issued_to: issuedTo || null,
-        created_by: createdBy || null,
-      },
-    ])
-    .select()
-    .single();
-
-  if (error) {
-    return jsonResponse({ ok: false, error: error.message }, 500);
-  }
-
-  // Klartext-Token zurückgeben (wird nur einmal angezeigt)
-  return jsonResponse({ ok: true, data, token });
-}
-
-// ── ACTION: Redeem Token ──
-
-async function handleRedeem(tournamentId: number, token: string, username: string) {
-  if (!token || !username) {
-    return jsonResponse({ ok: false, error: 'Token und Username erforderlich' }, 400);
-  }
-
-  const tokenHash = await hashValue(token);
-
-  // Token suchen: muss zum Turnier gehören, darf nicht benutzt sein
-  const { data: tokenRow, error: fetchError } = await supabase
-    .from('tournament_tokens')
+  // 1. Registration laden
+  const { data: reg, error: regError } = await supabase
+    .from('tournament_registrations')
     .select('*')
-    .eq('tournament_id', tournamentId)
-    .eq('token_hash', tokenHash)
-    .is('used_at', null)
-    .maybeSingle();
+    .eq('id', registrationId)
+    .single();
 
-  if (fetchError || !tokenRow) {
-    return jsonResponse({ ok: false, error: 'Token ungültig oder bereits verwendet' }, 400);
+  if (regError || !reg) {
+    return jsonResponse({ ok: false, error: 'Registrierung nicht gefunden' }, 404);
   }
 
-  // Token als benutzt markieren
-  const { error: updateError } = await supabase
-    .from('tournament_tokens')
-    .update({
-      used_by: username,
-      used_at: new Date().toISOString(),
-    })
-    .eq('id', tokenRow.id)
-    .is('used_at', null); // Double-check: Race-Condition verhindern
-
-  if (updateError) {
-    return jsonResponse({ ok: false, error: updateError.message }, 500);
+  if (reg.status !== 'pending') {
+    return jsonResponse({ ok: false, error: `Registrierung ist nicht ausstehend (Status: ${reg.status})` }, 400);
   }
 
-  // Spieler zum Turnier hinzufügen
+  if (!reg.player_username) {
+    return jsonResponse({ ok: false, error: 'Kein Spielername hinterlegt — User muss eingeloggt sein bei der Registrierung' }, 400);
+  }
+
+  // 2. Turnier laden und prüfen ob createdBy der Creator ist
   const { data: tournament, error: tournamentError } = await supabase
     .from('tournaments')
     .select('*')
-    .eq('id', tournamentId)
+    .eq('id', reg.tournament_id)
     .single();
 
   if (tournamentError || !tournament) {
     return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
   }
 
-  const normalizedName = username.trim();
-  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
-
-  // Schon dabei?
-  const existing = participants.some(
-    (p: string) => (p || '').toLowerCase() === normalizedName.toLowerCase()
-  );
-  if (existing) {
-    return jsonResponse({ ok: true, data: tournament, message: 'Bereits im Turnier' });
+  if (tournament.creator?.toLowerCase() !== createdBy.toLowerCase()) {
+    return jsonResponse({ ok: false, error: 'Nur der Turnier-Creator darf Registrierungen genehmigen' }, 403);
   }
 
-  // Voll?
+  if (!['registration', 'active'].includes(tournament.status)) {
+    return jsonResponse({ ok: false, error: 'Turnier ist nicht offen für neue Teilnehmer' }, 400);
+  }
+
+  // 3. Prüfen ob Spieler schon im Turnier ist
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const normalizedName = reg.player_username.trim();
+  const alreadyIn = participants.some(
+    (p: string) => (p || '').toLowerCase() === normalizedName.toLowerCase()
+  );
+
+  if (alreadyIn) {
+    await supabase
+      .from('tournament_registrations')
+      .update({
+        status: 'redeemed',
+        approved_at: new Date().toISOString(),
+        redeemed_at: new Date().toISOString(),
+      })
+      .eq('id', registrationId);
+
+    return jsonResponse({ ok: true, data: tournament, message: 'Spieler war bereits im Turnier' });
+  }
+
+  // 4. Voll?
   if (tournament.max_players && participants.length >= tournament.max_players) {
     return jsonResponse({ ok: false, error: 'Turnier ist voll' }, 400);
   }
 
-  // Abgelaufen?
+  // 5. Abgelaufen?
   if (tournament.play_until && new Date(tournament.play_until) <= new Date()) {
     return jsonResponse({ ok: false, error: 'Turnier ist abgelaufen' }, 400);
   }
 
+  // 6. Registration genehmigen + als eingelöst markieren
+  const { error: updateRegError } = await supabase
+    .from('tournament_registrations')
+    .update({
+      status: 'redeemed',
+      approved_at: new Date().toISOString(),
+      redeemed_at: new Date().toISOString(),
+    })
+    .eq('id', registrationId);
+
+  if (updateRegError) {
+    return jsonResponse({ ok: false, error: updateRegError.message }, 500);
+  }
+
+  // 7. Spieler zum Turnier hinzufügen
   const updatedParticipants = [...participants, normalizedName];
   const updates: Record<string, unknown> = {
     participants: updatedParticipants,
@@ -207,6 +173,169 @@ async function handleRedeem(tournamentId: number, token: string, username: strin
   const { data: updatedTournament, error: updateTError } = await supabase
     .from('tournaments')
     .update(updates)
+    .eq('id', reg.tournament_id)
+    .select()
+    .single();
+
+  if (updateTError) {
+    return jsonResponse({ ok: false, error: updateTError.message }, 500);
+  }
+
+  return jsonResponse({
+    ok: true,
+    data: updatedTournament,
+    message: `${normalizedName} wurde genehmigt und dem Turnier hinzugefügt`,
+  });
+}
+
+// ══════════════════════════════════════
+// ACTION: Create Token (Backward Compat)
+// ══════════════════════════════════════
+
+async function handleCreate(tournamentId: number, issuedTo: string | null, createdBy: string | null) {
+  const { data: tournament, error: fetchError } = await supabase
+    .from('tournaments')
+    .select('id, max_players, creator, status')
+    .eq('id', tournamentId)
+    .single();
+
+  if (fetchError || !tournament) {
+    return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
+  }
+
+  if (!createdBy || tournament.creator?.toLowerCase() !== createdBy.toLowerCase()) {
+    return jsonResponse({ ok: false, error: 'Nur der Turnier-Creator darf Tokens erstellen' }, 403);
+  }
+
+  if (tournament.max_players && tournament.max_players > 0) {
+    const { count, error: countError } = await supabase
+      .from('tournament_tokens')
+      .select('*', { count: 'exact', head: true })
+      .eq('tournament_id', tournamentId);
+
+    if (countError) {
+      return jsonResponse({ ok: false, error: countError.message }, 500);
+    }
+    if ((count || 0) >= tournament.max_players) {
+      return jsonResponse({ ok: false, error: 'Token-Limit erreicht' }, 400);
+    }
+  }
+
+  const token = generateToken();
+  const tokenHash = await hashValue(token);
+
+  const { data, error } = await supabase
+    .from('tournament_tokens')
+    .insert([
+      {
+        tournament_id: tournamentId,
+        token_hash: tokenHash,
+        issued_to: issuedTo || null,
+        created_by: createdBy || null,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    return jsonResponse({ ok: false, error: error.message }, 500);
+  }
+
+  return jsonResponse({ ok: true, data, token });
+}
+
+// ══════════════════════════════════════
+// ACTION: Redeem Token (Backward Compat)
+// ══════════════════════════════════════
+
+async function handleRedeem(tournamentId: number, token: string, username: string) {
+  if (!token || !username) {
+    return jsonResponse({ ok: false, error: 'Token und Username erforderlich' }, 400);
+  }
+
+  const tokenHash = await hashValue(token);
+
+  const { data: tokenRow, error: fetchError } = await supabase
+    .from('tournament_tokens')
+    .select('*')
+    .eq('tournament_id', tournamentId)
+    .eq('token_hash', tokenHash)
+    .is('used_at', null)
+    .maybeSingle();
+
+  if (fetchError || !tokenRow) {
+    return jsonResponse({ ok: false, error: 'Token ungültig oder bereits verwendet' }, 400);
+  }
+
+  const { error: updateError } = await supabase
+    .from('tournament_tokens')
+    .update({
+      used_by: username,
+      used_at: new Date().toISOString(),
+    })
+    .eq('id', tokenRow.id)
+    .is('used_at', null);
+
+  if (updateError) {
+    return jsonResponse({ ok: false, error: updateError.message }, 500);
+  }
+
+  const { data: tournament, error: tournamentError } = await supabase
+    .from('tournaments')
+    .select('*')
+    .eq('id', tournamentId)
+    .single();
+
+  if (tournamentError || !tournament) {
+    return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
+  }
+
+  const normalizedName = username.trim();
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+
+  const existing = participants.some(
+    (p: string) => (p || '').toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (existing) {
+    return jsonResponse({ ok: true, data: tournament, message: 'Bereits im Turnier' });
+  }
+
+  if (tournament.max_players && participants.length >= tournament.max_players) {
+    return jsonResponse({ ok: false, error: 'Turnier ist voll' }, 400);
+  }
+
+  if (tournament.play_until && new Date(tournament.play_until) <= new Date()) {
+    return jsonResponse({ ok: false, error: 'Turnier ist abgelaufen' }, 400);
+  }
+
+  const updatedParticipants = [...participants, normalizedName];
+  const updates: Record<string, unknown> = {
+    participants: updatedParticipants,
+    current_participants: updatedParticipants.length,
+  };
+
+  if (
+    tournament.format === 'bracket' &&
+    tournament.max_players &&
+    updatedParticipants.length >= tournament.max_players
+  ) {
+    updates.status = 'active';
+    updates.started_at = new Date().toISOString();
+  }
+
+  if (
+    tournament.format === 'highscore' &&
+    tournament.max_players &&
+    updatedParticipants.length >= tournament.max_players &&
+    tournament.status === 'registration'
+  ) {
+    updates.status = 'active';
+    updates.started_at = new Date().toISOString();
+  }
+
+  const { data: updatedTournament, error: updateTError } = await supabase
+    .from('tournaments')
+    .update(updates)
     .eq('id', tournamentId)
     .select()
     .single();
@@ -218,10 +347,11 @@ async function handleRedeem(tournamentId: number, token: string, username: strin
   return jsonResponse({ ok: true, data: updatedTournament });
 }
 
-// ── Main Handler ──
+// ══════════════════════════════════════
+// Main Handler
+// ══════════════════════════════════════
 
 Deno.serve(async (req) => {
-  // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -236,17 +366,23 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, tournamentId, issuedTo, createdBy, token, username } = body;
+    const { action, tournamentId, issuedTo, createdBy, token, username, registrationId } = body;
 
-    if (!action || !tournamentId) {
-      return jsonResponse({ ok: false, error: 'action und tournamentId erforderlich' }, 400);
+    if (!action) {
+      return jsonResponse({ ok: false, error: 'action erforderlich' }, 400);
+    }
+
+    if (action === 'approve') {
+      return await handleApprove(registrationId, createdBy);
     }
 
     if (action === 'create') {
+      if (!tournamentId) return jsonResponse({ ok: false, error: 'tournamentId erforderlich' }, 400);
       return await handleCreate(tournamentId, issuedTo, createdBy);
     }
 
     if (action === 'redeem') {
+      if (!tournamentId) return jsonResponse({ ok: false, error: 'tournamentId erforderlich' }, 400);
       return await handleRedeem(tournamentId, token, username);
     }
 

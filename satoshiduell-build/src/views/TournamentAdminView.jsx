@@ -12,11 +12,10 @@ import { useTranslation } from '../hooks/useTranslation';
 import {
   fetchTournamentAdminData,
   fetchProfiles,
-  approveRegistration,
+  approveAndAddParticipant,
   rejectRegistration,
   markPrizeClaimed,
   unmarkPrizeClaimed,
-  createTournamentToken,
   getTournamentImageUrl,
   disqualifyTournamentPlayer,
   removeTournamentParticipant,
@@ -117,7 +116,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [approveTokenModal, setApproveTokenModal] = useState(null);
   const [expandedSections, setExpandedSections] = useState({
     pending: true,
     approved: true,
@@ -180,24 +178,12 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  // ── Handlers ──
-  const handleApproveAndGenerateToken = async (reg) => {
-    const { error: approveError } = await approveRegistration(reg.id);
-    if (approveError) {
-      alert('Fehler beim Genehmigen: ' + (approveError.message || ''));
-      return;
-    }
-    const { data: tokenData, error: tokenError, token } = await createTournamentToken(
-      tournamentId, reg.identity_display, user?.username
+  const handleApprove = async (reg) => {
+    setActionLoading(`approve-${reg.id}`);
+    await runAdminAction(
+      () => approveAndAddParticipant(reg.id, user?.username),
+      `${reg.identity_display} genehmigt & dem Turnier hinzugefügt`
     );
-    if (tokenError || !tokenData) {
-      console.error('Token creation failed:', tokenError);
-      alert('Genehmigt, aber Token konnte nicht gespeichert werden: ' + (tokenError?.message || 'Unbekannter Fehler'));
-      await loadData();
-      return;
-    }
-    setApproveTokenModal({ registration: reg, token });
-    await loadData();
   };
 
   const handleReject = async (regId) => {
@@ -345,7 +331,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
         {reg.status === 'pending' && (
           <>
             <button
-              onClick={() => handleApproveAndGenerateToken(reg)}
+              onClick={() => handleApprove(reg)}
               className="bg-green-500/20 p-2 rounded-lg hover:bg-green-500/30 transition-colors"
               title="Genehmigen & Token generieren"
             >
@@ -1038,53 +1024,6 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
           )}
         </div>
       </div>
-
-      {/* ═══════ TOKEN MODAL ═══════ */}
-      {approveTokenModal && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
-          onClick={() => setApproveTokenModal(null)}
-        >
-          <div className="bg-[#1a1a1a] border border-green-500/30 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-4">
-              <CheckCircle2 size={32} className="text-green-400 mx-auto mb-2" />
-              <h3 className="text-lg font-black text-white">Genehmigt!</h3>
-              <p className="text-xs text-neutral-400 mt-2">
-                Sende diesen Teilnahme-Code an:
-              </p>
-              <div className="mt-2 flex items-center justify-center gap-2">
-                <SocialIcon type={approveTokenModal.registration.identity_type} size={16} />
-                <span className="text-sm font-bold text-white">{approveTokenModal.registration.identity_display}</span>
-                <CopyButton
-                  text={approveTokenModal.registration.identity_value || approveTokenModal.registration.identity_display}
-                  label="Handle kopieren"
-                />
-              </div>
-            </div>
-
-            <div className="bg-black/40 border border-green-500/30 rounded-xl p-4 text-center mb-4">
-              <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">Teilnahme-Code</p>
-              <div className="font-mono text-xl text-green-300 break-all">{approveTokenModal.token}</div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  copyToClipboard(approveTokenModal.token);
-                  setApproveTokenModal(null);
-                }}
-                className="flex-1 bg-green-500 text-black font-bold py-3 rounded-xl hover:bg-green-400 transition-colors flex items-center justify-center gap-2"
-              >
-                <Copy size={16} /> Kopieren & Schließen
-              </button>
-            </div>
-
-            <p className="text-[10px] text-neutral-500 text-center mt-3">
-              Der Teilnehmer gibt diesen Code in der App unter "Einladungscode eingeben" ein.
-            </p>
-          </div>
-        </div>
-      )}
     </Background>
   );
 };

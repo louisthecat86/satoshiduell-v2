@@ -1442,6 +1442,34 @@ export const approveRegistration = async (registrationId) => {
   return { data, error };
 };
 
+/**
+ * Registrierung genehmigen + Spieler direkt ins Turnier aufnehmen.
+ * Läuft über die Edge Function (service_role) um RLS zu umgehen.
+ */
+export const approveAndAddParticipant = async (registrationId, createdBy) => {
+  try {
+    const { data: result, error } = await supabase.functions.invoke('tournament-tokens', {
+      body: {
+        action: 'approve',
+        registrationId,
+        createdBy,
+      },
+    });
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    if (!result.ok) {
+      return { data: null, error: new Error(result.error || 'Genehmigung fehlgeschlagen') };
+    }
+
+    return { data: result.data, error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
+};
+
 // Creator lehnt Registrierung ab
 export const rejectRegistration = async (registrationId) => {
   const { data, error } = await supabase
