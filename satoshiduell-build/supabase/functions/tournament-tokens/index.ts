@@ -6,9 +6,6 @@
 //   POST { action: 'approve', registrationId, createdBy }
 //   POST { action: 'create', tournamentId, issuedTo, createdBy }
 //   POST { action: 'redeem', tournamentId, token, username }
-//
-// 'approve' = neuer Flow: Genehmigen → Spieler wird direkt aufgenommen
-// 'create' + 'redeem' = alter Token-Flow (Backward Compat)
 // ============================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -32,8 +29,6 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) => {
   });
 };
 
-// ── Crypto Helpers ──
-
 async function hashValue(value: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(value.trim());
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -44,15 +39,23 @@ async function hashValue(value: string): Promise<string> {
 function generateToken(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  const hex = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
   return `T-${hex}`;
 }
 
+// Helper: Dedup participants array (case-insensitive)
+function deduplicateParticipants(participants: string[]): string[] {
+  const seen = new Set<string>();
+  return participants.filter(p => {
+    const key = (p || '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // ══════════════════════════════════════
-// ACTION: Approve (NEUER FLOW)
-// Genehmigt Registrierung + fügt Spieler direkt ins Turnier ein
+// ACTION: Approve
 // ══════════════════════════════════════
 
 async function handleApprove(registrationId: number, createdBy: string) {
@@ -60,7 +63,6 @@ async function handleApprove(registrationId: number, createdBy: string) {
     return jsonResponse({ ok: false, error: 'registrationId und createdBy erforderlich' }, 400);
   }
 
-  // 1. Registration laden
   const { data: reg, error: regError } = await supabase
     .from('tournament_registrations')
     .select('*')
@@ -76,10 +78,9 @@ async function handleApprove(registrationId: number, createdBy: string) {
   }
 
   if (!reg.player_username) {
-    return jsonResponse({ ok: false, error: 'Kein Spielername hinterlegt — User muss eingeloggt sein bei der Registrierung' }, 400);
+    return jsonResponse({ ok: false, error: 'Kein Spielername hinterlegt' }, 400);
   }
 
-  // 2. Turnier laden und prüfen ob createdBy der Creator ist
   const { data: tournament, error: tournamentError } = await supabase
     .from('tournaments')
     .select('*')
@@ -91,14 +92,13 @@ async function handleApprove(registrationId: number, createdBy: string) {
   }
 
   if (tournament.creator?.toLowerCase() !== createdBy.toLowerCase()) {
-    return jsonResponse({ ok: false, error: 'Nur der Turnier-Creator darf Registrierungen genehmigen' }, 403);
+    return jsonResponse({ ok: false, error: 'Nur der Turnier-Creator darf genehmigen' }, 403);
   }
 
   if (!['registration', 'active'].includes(tournament.status)) {
-    return jsonResponse({ ok: false, error: 'Turnier ist nicht offen für neue Teilnehmer' }, 400);
+    return jsonResponse({ ok: false, error: 'Turnier ist nicht offen' }, 400);
   }
 
-  // 3. Prüfen ob Spieler schon im Turnier ist
   const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
   const normalizedName = reg.player_username.trim();
   const alreadyIn = participants.some(
@@ -108,64 +108,41 @@ async function handleApprove(registrationId: number, createdBy: string) {
   if (alreadyIn) {
     await supabase
       .from('tournament_registrations')
-      .update({
-        status: 'redeemed',
-        approved_at: new Date().toISOString(),
-        redeemed_at: new Date().toISOString(),
-      })
+      .update({ status: 'redeemed', approved_at: new Date().toISOString(), redeemed_at: new Date().toISOString() })
       .eq('id', registrationId);
-
     return jsonResponse({ ok: true, data: tournament, message: 'Spieler war bereits im Turnier' });
   }
 
-  // 4. Voll?
   if (tournament.max_players && participants.length >= tournament.max_players) {
     return jsonResponse({ ok: false, error: 'Turnier ist voll' }, 400);
   }
 
-  // 5. Abgelaufen?
   if (tournament.play_until && new Date(tournament.play_until) <= new Date()) {
     return jsonResponse({ ok: false, error: 'Turnier ist abgelaufen' }, 400);
   }
 
-  // 6. Registration genehmigen + als eingelöst markieren
   const { error: updateRegError } = await supabase
     .from('tournament_registrations')
-    .update({
-      status: 'redeemed',
-      approved_at: new Date().toISOString(),
-      redeemed_at: new Date().toISOString(),
-    })
+    .update({ status: 'redeemed', approved_at: new Date().toISOString(), redeemed_at: new Date().toISOString() })
     .eq('id', registrationId);
 
   if (updateRegError) {
     return jsonResponse({ ok: false, error: updateRegError.message }, 500);
   }
 
-  // 7. Spieler zum Turnier hinzufügen
-  const updatedParticipants = [...participants, normalizedName];
+  // Spieler hinzufügen + Dedup
+  const updatedParticipants = deduplicateParticipants([...participants, normalizedName]);
   const updates: Record<string, unknown> = {
     participants: updatedParticipants,
     current_participants: updatedParticipants.length,
   };
 
-  // Auto-Start bei Bracket wenn voll
-  if (
-    tournament.format === 'bracket' &&
-    tournament.max_players &&
-    updatedParticipants.length >= tournament.max_players
-  ) {
+  if (tournament.format === 'bracket' && tournament.max_players && updatedParticipants.length >= tournament.max_players) {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
   }
 
-  // Auto-Start bei Highscore wenn voll
-  if (
-    tournament.format === 'highscore' &&
-    tournament.max_players &&
-    updatedParticipants.length >= tournament.max_players &&
-    tournament.status === 'registration'
-  ) {
+  if (tournament.format === 'highscore' && tournament.max_players && updatedParticipants.length >= tournament.max_players && tournament.status === 'registration') {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
   }
@@ -181,11 +158,7 @@ async function handleApprove(registrationId: number, createdBy: string) {
     return jsonResponse({ ok: false, error: updateTError.message }, 500);
   }
 
-  return jsonResponse({
-    ok: true,
-    data: updatedTournament,
-    message: `${normalizedName} wurde genehmigt und dem Turnier hinzugefügt`,
-  });
+  return jsonResponse({ ok: true, data: updatedTournament, message: `${normalizedName} genehmigt & hinzugefügt` });
 }
 
 // ══════════════════════════════════════
@@ -204,7 +177,7 @@ async function handleCreate(tournamentId: number, issuedTo: string | null, creat
   }
 
   if (!createdBy || tournament.creator?.toLowerCase() !== createdBy.toLowerCase()) {
-    return jsonResponse({ ok: false, error: 'Nur der Turnier-Creator darf Tokens erstellen' }, 403);
+    return jsonResponse({ ok: false, error: 'Nur der Creator darf Tokens erstellen' }, 403);
   }
 
   if (tournament.max_players && tournament.max_players > 0) {
@@ -212,13 +185,8 @@ async function handleCreate(tournamentId: number, issuedTo: string | null, creat
       .from('tournament_tokens')
       .select('*', { count: 'exact', head: true })
       .eq('tournament_id', tournamentId);
-
-    if (countError) {
-      return jsonResponse({ ok: false, error: countError.message }, 500);
-    }
-    if ((count || 0) >= tournament.max_players) {
-      return jsonResponse({ ok: false, error: 'Token-Limit erreicht' }, 400);
-    }
+    if (countError) return jsonResponse({ ok: false, error: countError.message }, 500);
+    if ((count || 0) >= tournament.max_players) return jsonResponse({ ok: false, error: 'Token-Limit erreicht' }, 400);
   }
 
   const token = generateToken();
@@ -226,21 +194,11 @@ async function handleCreate(tournamentId: number, issuedTo: string | null, creat
 
   const { data, error } = await supabase
     .from('tournament_tokens')
-    .insert([
-      {
-        tournament_id: tournamentId,
-        token_hash: tokenHash,
-        issued_to: issuedTo || null,
-        created_by: createdBy || null,
-      },
-    ])
+    .insert([{ tournament_id: tournamentId, token_hash: tokenHash, issued_to: issuedTo || null, created_by: createdBy || null }])
     .select()
     .single();
 
-  if (error) {
-    return jsonResponse({ ok: false, error: error.message }, 500);
-  }
-
+  if (error) return jsonResponse({ ok: false, error: error.message }, 500);
   return jsonResponse({ ok: true, data, token });
 }
 
@@ -249,9 +207,7 @@ async function handleCreate(tournamentId: number, issuedTo: string | null, creat
 // ══════════════════════════════════════
 
 async function handleRedeem(tournamentId: number, token: string, username: string) {
-  if (!token || !username) {
-    return jsonResponse({ ok: false, error: 'Token und Username erforderlich' }, 400);
-  }
+  if (!token || !username) return jsonResponse({ ok: false, error: 'Token und Username erforderlich' }, 400);
 
   const tokenHash = await hashValue(token);
 
@@ -263,22 +219,15 @@ async function handleRedeem(tournamentId: number, token: string, username: strin
     .is('used_at', null)
     .maybeSingle();
 
-  if (fetchError || !tokenRow) {
-    return jsonResponse({ ok: false, error: 'Token ungültig oder bereits verwendet' }, 400);
-  }
+  if (fetchError || !tokenRow) return jsonResponse({ ok: false, error: 'Token ungültig oder bereits verwendet' }, 400);
 
   const { error: updateError } = await supabase
     .from('tournament_tokens')
-    .update({
-      used_by: username,
-      used_at: new Date().toISOString(),
-    })
+    .update({ used_by: username, used_at: new Date().toISOString() })
     .eq('id', tokenRow.id)
     .is('used_at', null);
 
-  if (updateError) {
-    return jsonResponse({ ok: false, error: updateError.message }, 500);
-  }
+  if (updateError) return jsonResponse({ ok: false, error: updateError.message }, 500);
 
   const { data: tournament, error: tournamentError } = await supabase
     .from('tournaments')
@@ -286,49 +235,27 @@ async function handleRedeem(tournamentId: number, token: string, username: strin
     .eq('id', tournamentId)
     .single();
 
-  if (tournamentError || !tournament) {
-    return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
-  }
+  if (tournamentError || !tournament) return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
 
   const normalizedName = username.trim();
   const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
 
-  const existing = participants.some(
-    (p: string) => (p || '').toLowerCase() === normalizedName.toLowerCase()
-  );
-  if (existing) {
+  if (participants.some((p: string) => (p || '').toLowerCase() === normalizedName.toLowerCase())) {
     return jsonResponse({ ok: true, data: tournament, message: 'Bereits im Turnier' });
   }
 
-  if (tournament.max_players && participants.length >= tournament.max_players) {
-    return jsonResponse({ ok: false, error: 'Turnier ist voll' }, 400);
-  }
+  if (tournament.max_players && participants.length >= tournament.max_players) return jsonResponse({ ok: false, error: 'Turnier ist voll' }, 400);
+  if (tournament.play_until && new Date(tournament.play_until) <= new Date()) return jsonResponse({ ok: false, error: 'Turnier ist abgelaufen' }, 400);
 
-  if (tournament.play_until && new Date(tournament.play_until) <= new Date()) {
-    return jsonResponse({ ok: false, error: 'Turnier ist abgelaufen' }, 400);
-  }
+  const updatedParticipants = deduplicateParticipants([...participants, normalizedName]);
+  const updates: Record<string, unknown> = { participants: updatedParticipants, current_participants: updatedParticipants.length };
 
-  const updatedParticipants = [...participants, normalizedName];
-  const updates: Record<string, unknown> = {
-    participants: updatedParticipants,
-    current_participants: updatedParticipants.length,
-  };
-
-  if (
-    tournament.format === 'bracket' &&
-    tournament.max_players &&
-    updatedParticipants.length >= tournament.max_players
-  ) {
+  if (tournament.format === 'bracket' && tournament.max_players && updatedParticipants.length >= tournament.max_players) {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
   }
 
-  if (
-    tournament.format === 'highscore' &&
-    tournament.max_players &&
-    updatedParticipants.length >= tournament.max_players &&
-    tournament.status === 'registration'
-  ) {
+  if (tournament.format === 'highscore' && tournament.max_players && updatedParticipants.length >= tournament.max_players && tournament.status === 'registration') {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
   }
@@ -340,10 +267,7 @@ async function handleRedeem(tournamentId: number, token: string, username: strin
     .select()
     .single();
 
-  if (updateTError) {
-    return jsonResponse({ ok: false, error: updateTError.message }, 500);
-  }
-
+  if (updateTError) return jsonResponse({ ok: false, error: updateTError.message }, 500);
   return jsonResponse({ ok: true, data: updatedTournament });
 }
 
@@ -352,35 +276,20 @@ async function handleRedeem(tournamentId: number, token: string, username: strin
 // ══════════════════════════════════════
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-
-  if (req.method !== 'POST') {
-    return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
-  }
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return jsonResponse({ ok: false, error: 'Server configuration error' }, 500);
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed' }, 405);
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return jsonResponse({ ok: false, error: 'Server configuration error' }, 500);
 
   try {
     const body = await req.json();
     const { action, tournamentId, issuedTo, createdBy, token, username, registrationId } = body;
+    if (!action) return jsonResponse({ ok: false, error: 'action erforderlich' }, 400);
 
-    if (!action) {
-      return jsonResponse({ ok: false, error: 'action erforderlich' }, 400);
-    }
-
-    if (action === 'approve') {
-      return await handleApprove(registrationId, createdBy);
-    }
-
+    if (action === 'approve') return await handleApprove(registrationId, createdBy);
     if (action === 'create') {
       if (!tournamentId) return jsonResponse({ ok: false, error: 'tournamentId erforderlich' }, 400);
       return await handleCreate(tournamentId, issuedTo, createdBy);
     }
-
     if (action === 'redeem') {
       if (!tournamentId) return jsonResponse({ ok: false, error: 'tournamentId erforderlich' }, 400);
       return await handleRedeem(tournamentId, token, username);

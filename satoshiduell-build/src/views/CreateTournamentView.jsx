@@ -24,6 +24,8 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     playTime: '',
     playUntil: '',
     deadlineMode: 'deadline',
+    bracketMode: 'auto',  // 'fixed' = feste Bracket-Größe, 'auto' = Deadline-basiert
+    qualifyingQuestionCount: 5,
     roundDeadlineHours: 24,
     questionsPerRound: null,
     contactInfo: '',
@@ -123,7 +125,12 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     }
 
     if (form.format === 'bracket') {
-      if (!form.maxPlayers) { alert('Spieleranzahl für Bracket wählen'); return false; }
+      if (form.bracketMode === 'fixed' && !form.maxPlayers) { alert('Spieleranzahl für Bracket wählen'); return false; }
+      if (form.bracketMode === 'auto' && !form.playUntil) { alert('Registrierungs-Deadline für automatischen Modus erforderlich'); return false; }
+      if (form.playUntil) {
+        const d = new Date(form.playUntil);
+        if (isNaN(d.getTime()) || d <= new Date()) { alert('Deadline muss in der Zukunft liegen'); return false; }
+      }
     }
 
     return true;
@@ -146,11 +153,14 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
       sponsor_name: form.sponsorName.trim() || null,
       sponsor_url: form.sponsorUrl.trim() || null,
       question_count: form.format === 'highscore' ? form.questionCount : null,
+      qualifying_question_count: form.format === 'bracket' ? (parseInt(form.qualifyingQuestionCount) || 5) : null,
       max_players: form.maxPlayers ? parseInt(form.maxPlayers, 10) : null,
       play_until: form.playUntil ? new Date(form.playUntil).toISOString() : null,
       round_deadline_hours: form.format === 'bracket' ? form.roundDeadlineHours : null,
-      questions_per_round: form.format === 'bracket'
-        ? (form.questionsPerRound || getDefaultQuestionsPerRound(form.maxPlayers))
+      questions_per_round: form.format === 'bracket' && form.bracketMode === 'fixed' && form.questionsPerRound
+        ? form.questionsPerRound
+        : form.format === 'bracket' && form.bracketMode === 'fixed'
+        ? getDefaultQuestionsPerRound(form.maxPlayers || 16)
         : null,
     };
 
@@ -368,27 +378,96 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
               {/* Bracket Config */}
               {form.format === 'bracket' && (
                 <>
+                  {/* Bracket-Modus Auswahl */}
                   <div>
-                    <label className={labelClass}>Spieleranzahl</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {bracketSizes.map(size => (
-                        <button
-                          key={size}
-                          type="button"
-                          onClick={() => {
-                            updateForm('maxPlayers', size);
-                            updateForm('questionsPerRound', getDefaultQuestionsPerRound(size));
-                          }}
-                          className={`px-3 py-3 rounded-xl text-sm font-bold transition-all ${
-                            parseInt(form.maxPlayers) === size
-                              ? 'bg-purple-500 text-black'
-                              : 'bg-white/5 text-white hover:bg-white/10'
-                          }`}
-                        >
-                          {size}
-                        </button>
-                      ))}
+                    <label className={labelClass}>Bracket-Modus</label>
+                    <div className="grid grid-cols-2 gap-2 mb-1">
+                      <button
+                        type="button"
+                        onClick={() => { updateForm('bracketMode', 'auto'); updateForm('maxPlayers', ''); }}
+                        className={`p-3 rounded-xl border-2 text-left transition-all ${
+                          form.bracketMode === 'auto' ? 'border-purple-500 bg-purple-500/10' : 'border-white/10 bg-white/5'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-white">🕐 Automatisch</div>
+                        <div className="text-[10px] text-neutral-400 mt-1">Registrierungsfrist → App bestimmt Bracket-Größe</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { updateForm('bracketMode', 'fixed'); updateForm('playUntil', ''); updateForm('playDate', ''); updateForm('playTime', ''); }}
+                        className={`p-3 rounded-xl border-2 text-left transition-all ${
+                          form.bracketMode === 'fixed' ? 'border-purple-500 bg-purple-500/10' : 'border-white/10 bg-white/5'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-white">🎯 Feste Größe</div>
+                        <div className="text-[10px] text-neutral-400 mt-1">Feste Spieleranzahl wählen → Start wenn voll</div>
+                      </button>
                     </div>
+                  </div>
+
+                  {/* Auto-Modus: Registrierungs-Deadline */}
+                  {form.bracketMode === 'auto' && (
+                    <div>
+                      <label className={labelClass}>Registrierungsfrist</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="date"
+                          value={form.playDate}
+                          onChange={e => { updateForm('playDate', e.target.value); updateDeadline(e.target.value, form.playTime); }}
+                          className={inputClass}
+                        />
+                        <input
+                          type="time"
+                          value={form.playTime}
+                          onChange={e => { updateForm('playTime', e.target.value); updateDeadline(form.playDate, e.target.value); }}
+                          className={inputClass}
+                        />
+                      </div>
+                      <p className="text-[10px] text-neutral-500 mt-1">
+                        Nach Ablauf bestimmt die App automatisch die optimale Bracket-Größe. Bei nicht-gerader Anzahl wird eine Qualifikationsrunde vorgeschaltet.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Fixed-Modus: Bracket-Größe wählen */}
+                  {form.bracketMode === 'fixed' && (
+                    <div>
+                      <label className={labelClass}>Spieleranzahl</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {bracketSizes.map(size => (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => {
+                              updateForm('maxPlayers', size);
+                              updateForm('questionsPerRound', getDefaultQuestionsPerRound(size));
+                            }}
+                            className={`px-3 py-3 rounded-xl text-sm font-bold transition-all ${
+                              parseInt(form.maxPlayers) === size
+                                ? 'bg-purple-500 text-black'
+                                : 'bg-white/5 text-white hover:bg-white/10'
+                            }`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Qualifying Fragen-Anzahl */}
+                  <div>
+                    <label className={labelClass}>Fragen in der Qualifikation</label>
+                    <input
+                      type="number"
+                      value={form.qualifyingQuestionCount}
+                      onChange={e => updateForm('qualifyingQuestionCount', parseInt(e.target.value) || 5)}
+                      min="1" max="50"
+                      className={inputClass}
+                    />
+                    <p className="text-[10px] text-neutral-500 mt-1">
+                      Falls eine Qualifikationsrunde nötig ist (z.B. 20 Spieler → Top 16 qualifizieren sich), beantworten alle Teilnehmer diese Anzahl Fragen
+                    </p>
                   </div>
 
                   <div>
@@ -403,7 +482,7 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                     <p className="text-[10px] text-neutral-500 mt-1">Nach Ablauf wird der Spieler der gespielt hat automatisch weitergeleitet</p>
                   </div>
 
-                  {form.maxPlayers && form.questionsPerRound && (
+                  {form.bracketMode === 'fixed' && form.maxPlayers && form.questionsPerRound && (
                     <div>
                       <label className={labelClass}>Fragen pro Runde</label>
                       <div className="space-y-2">
@@ -439,24 +518,27 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                     </div>
                   )}
 
-                  <div>
-                    <label className={labelClass}>Registrierungs-Deadline (optional)</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="date"
-                        value={form.playDate}
-                        onChange={e => { updateForm('playDate', e.target.value); updateDeadline(e.target.value, form.playTime); }}
-                        className={inputClass}
-                      />
-                      <input
-                        type="time"
-                        value={form.playTime}
-                        onChange={e => { updateForm('playTime', e.target.value); updateDeadline(form.playDate, e.target.value); }}
-                        className={inputClass}
-                      />
+                  {/* Optional: Deadline für Fixed-Modus */}
+                  {form.bracketMode === 'fixed' && (
+                    <div>
+                      <label className={labelClass}>Registrierungs-Deadline (optional)</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="date"
+                          value={form.playDate}
+                          onChange={e => { updateForm('playDate', e.target.value); updateDeadline(e.target.value, form.playTime); }}
+                          className={inputClass}
+                        />
+                        <input
+                          type="time"
+                          value={form.playTime}
+                          onChange={e => { updateForm('playTime', e.target.value); updateDeadline(form.playDate, e.target.value); }}
+                          className={inputClass}
+                        />
+                      </div>
+                      <p className="text-[10px] text-neutral-500 mt-1">Danach können keine neuen Spieler mehr beitreten</p>
                     </div>
-                    <p className="text-[10px] text-neutral-500 mt-1">Danach können keine neuen Spieler mehr beitreten</p>
-                  </div>
+                  )}
                 </>
               )}
             </div>
@@ -547,12 +629,24 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                   )}
                   <div>
                     <span className="text-[10px] text-neutral-400 font-bold">TEILNEHMER</span>
-                    <p className="text-white font-black">{form.maxPlayers || 'Unbegrenzt'}</p>
+                    <p className="text-white font-black">{form.maxPlayers || 'Automatisch'}</p>
                   </div>
                   <div>
                     <span className="text-[10px] text-neutral-400 font-bold">ZUGANG</span>
                     <p className="text-white font-black">Einladungslink</p>
                   </div>
+                  {form.format === 'bracket' && (
+                    <div>
+                      <span className="text-[10px] text-neutral-400 font-bold">BRACKET-MODUS</span>
+                      <p className="text-white font-black">{form.bracketMode === 'auto' ? 'Automatisch' : 'Feste Größe'}</p>
+                    </div>
+                  )}
+                  {form.format === 'bracket' && (
+                    <div>
+                      <span className="text-[10px] text-neutral-400 font-bold">QUALI-FRAGEN</span>
+                      <p className="text-white font-black">{form.qualifyingQuestionCount}</p>
+                    </div>
+                  )}
                   {form.playUntil && (
                     <div className="col-span-2">
                       <span className="text-[10px] text-neutral-400 font-bold">DEADLINE</span>

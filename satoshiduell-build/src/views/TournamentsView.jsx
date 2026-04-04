@@ -5,7 +5,7 @@ import BracketTree from '../components/ui/BracketTree';
 import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, Swords, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, getTournamentImageUrl, fetchProfiles, generateBracketMatches } from '../services/supabase';
+import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, getTournamentImageUrl, fetchProfiles, generateBracketMatches, finalizeQualifying } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 import { getCryptoPunkAvatar } from '../utils/avatar';
 import { SocialIcon } from '../components/ui/SocialIcons';
@@ -93,7 +93,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     });
   }, [selectedTournament?.id]);
 
-  const visibleTournaments = tournaments.filter(t => ['registration', 'active', 'finished', 'archived'].includes(t.status));
+  const visibleTournaments = tournaments.filter(t => ['registration', 'qualifying', 'active', 'finished', 'archived'].includes(t.status));
   const getMyRegistration = (tid) => myRegistrations.find(r => r.tournament_id === tid);
   const canDeleteTournament = (t) => { if (!user) return false; if (user.is_admin) return true; return t.creator?.toLowerCase() === user.username?.toLowerCase(); };
   const isCreator = (t) => user && t && t.creator?.toLowerCase() === user.username?.toLowerCase();
@@ -101,7 +101,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
   const hasPlayed = (t) => {
     if (!t || !user?.username) return false;
-    if (t.format === 'bracket') return false;
+    if (t.format === 'bracket' && t.status !== 'qualifying') return false;
     const scores = t.participant_scores || {};
     return scores[user.username.toLowerCase()] !== undefined && scores[user.username.toLowerCase()] !== null;
   };
@@ -126,6 +126,8 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const canStartTournament = (t) => {
     if (!t || !isParticipant(t) || t.status === 'finished') return false;
     if (t.play_until && new Date(t.play_until) <= new Date()) return false;
+    // Qualifying: Spieler können Quali-Quiz spielen
+    if (t.status === 'qualifying') return !hasPlayed(t);
     if (t.format === 'bracket') { const m = getMyBracketMatch(); return m && !hasPlayedBracketMatch(m); }
     return !hasPlayed(t);
   };
@@ -137,7 +139,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     if (onStartTournament) onStartTournament(tournament);
   };
 
-  const statusLabel = (s) => ({ registration: 'Anmeldung offen', active: 'Läuft', finished: 'Beendet', archived: '📦 Archiviert' }[s] || s);
+  const statusLabel = (s) => ({ registration: 'Anmeldung offen', qualifying: 'Qualifikation läuft', active: 'Läuft', finished: 'Beendet', archived: '📦 Archiviert' }[s] || s);
   const formatBadge = (f) => f === 'bracket' ? 'Bracket' : 'Highscore';
   const formatPlayUntil = (v) => { if (!v) return '-'; const d = new Date(v); return isNaN(d.getTime()) ? '-' : d.toLocaleString(); };
   const questionCount = (t) => t?.question_count || 0;
@@ -289,6 +291,14 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                   </button>
                 </div>
               )}
+              {/* Redeemed aber nicht mehr Participant → aus Qualifying rausgeflogen */}
+              {myReg?.status === 'redeemed' && (
+                <div className="bg-neutral-500/10 border border-neutral-500/30 rounded-2xl p-4 text-center">
+                  <XCircle size={24} className="text-neutral-400 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-white mb-1">Nicht qualifiziert</p>
+                  <p className="text-xs text-neutral-400">Du hast an der Qualifikationsrunde teilgenommen, dich aber leider nicht für das Bracket qualifiziert.</p>
+                </div>
+              )}
               {/* Abgelehnt */}
               {myReg?.status === 'rejected' && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 text-center">
@@ -298,6 +308,94 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
               )}
             </div>
           )}
+
+          {/* ── QUALIFYING ROUND ── */}
+          {selectedTournament.status === 'qualifying' && amParticipant && (
+            <div className="px-4 mb-4">
+              {!hasPlayed(selectedTournament) ? (
+                <div className="bg-orange-500/10 border border-orange-500/40 rounded-2xl p-4">
+                  <div className="text-center mb-3">
+                    <Trophy size={28} className="text-orange-400 mx-auto mb-2" />
+                    <h3 className="text-sm font-black text-white uppercase">Qualifikationsrunde</h3>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      {selectedTournament.qualifying_target ? `Die besten ${selectedTournament.qualifying_target} kommen ins Bracket` : 'Spiele dich ins Bracket!'}
+                    </p>
+                  </div>
+                  {(() => {
+                    const participants = selectedTournament.participants || [];
+                    const scores = selectedTournament.participant_scores || {};
+                    const played = participants.filter(p => scores[(p || '').toLowerCase()] !== undefined && scores[(p || '').toLowerCase()] !== null).length;
+                    return (
+                      <div className="bg-black/30 rounded-xl p-3 mb-3 text-center">
+                        <span className="text-xs text-neutral-400">{played} von {participants.length} haben gespielt</span>
+                        <div className="w-full bg-white/10 rounded-full h-1.5 mt-2">
+                          <div className="bg-orange-400 h-1.5 rounded-full transition-all" style={{ width: `${participants.length > 0 ? (played / participants.length) * 100 : 0}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <Button onClick={() => handleStartTournamentWrapped(selectedTournament)}
+                    className="w-full bg-orange-500 hover:bg-orange-400 text-black font-black py-4 flex items-center justify-center gap-2 text-lg">
+                    🎯 Qualifikation spielen
+                  </Button>
+                </div>
+              ) : (
+                <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-4 text-center">
+                  <CheckCircle2 size={24} className="text-green-400 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-white mb-1">Qualifikation gespielt!</p>
+                  <p className="text-xs text-neutral-400">Warte auf die anderen Teilnehmer. Die besten {selectedTournament.qualifying_target || '?'} kommen ins Bracket.</p>
+                  {(() => {
+                    const participants = selectedTournament.participants || [];
+                    const scores = selectedTournament.participant_scores || {};
+                    const played = participants.filter(p => scores[(p || '').toLowerCase()] !== undefined && scores[(p || '').toLowerCase()] !== null).length;
+                    return <p className="text-xs text-neutral-500 mt-2">{played} von {participants.length} haben gespielt</p>;
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Qualifying Rangliste */}
+          {selectedTournament.status === 'qualifying' && (() => {
+            const qResults = getResultsList(selectedTournament);
+            const playedResults = qResults.filter(r => r.played);
+            if (playedResults.length === 0) return null;
+            const target = selectedTournament.qualifying_target || 0;
+            return (
+              <div className="px-4 mb-4">
+                <div className="bg-[#161616] border border-white/5 rounded-2xl p-4">
+                  <h3 className="text-neutral-500 font-bold text-xs uppercase tracking-widest mb-3 ml-1">
+                    Qualifying — Top {target} kommen weiter
+                  </h3>
+                  {qResults.map((entry, index) => {
+                    const isMe = user?.username && entry.name.toLowerCase() === user.username.toLowerCase();
+                    const qualifies = index < target && entry.played;
+                    return (
+                      <div key={entry.key || index} className={`flex items-center justify-between rounded-xl px-3 py-2 border mb-1 ${
+                        qualifies ? 'border-green-500/30 bg-green-500/5' :
+                        entry.played ? 'border-red-500/20 bg-red-500/5 opacity-60' :
+                        'border-white/5 bg-white/5 opacity-40'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 text-[10px] text-neutral-500 font-bold">{index + 1}.</div>
+                          <div className="w-7 h-7 rounded-md border border-white/10 overflow-hidden bg-neutral-900 flex-shrink-0">
+                            <img src={avatarMap[entry.key] || getCryptoPunkAvatar(entry.name)} alt="" className="w-full h-full object-cover" />
+                          </div>
+                          <div className="text-xs font-bold text-white">{entry.name}</div>
+                          {isMe && <span className="text-[9px] bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">Du</span>}
+                          {qualifies && <span className="text-[9px] text-green-400 font-bold">✓</span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-neutral-300">
+                          <div>{entry.played ? `${entry.score} Pkt` : '-'}</div>
+                          <div>{entry.played ? fmtTime(entry.timeMs) : 'Ausstehend'}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* BRACKET: Mein aktuelles Match */}
           {isBracket && amParticipant && myMatch && !hasPlayedBracketMatch(myMatch) && (
@@ -523,7 +621,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   // ============================================
   // LIST VIEW
   // ============================================
-  const activeTournaments = visibleTournaments.filter(t => t.status === 'active');
+  const activeTournaments = visibleTournaments.filter(t => t.status === 'active' || t.status === 'qualifying');
   const registrationTournaments = visibleTournaments.filter(t => t.status === 'registration');
   const finishedTournaments = visibleTournaments.filter(t => t.status === 'finished' || t.status === 'archived').slice(0, 10);
 

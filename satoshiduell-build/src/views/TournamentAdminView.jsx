@@ -22,6 +22,8 @@ import {
   deleteRegistration,
   startTournamentManually,
   finalizeTournamentManually,
+  generateBracketMatches,
+  finalizeQualifying,
 } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 import { getCryptoPunkAvatar } from '../utils/avatar';
@@ -168,6 +170,16 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
         });
         setAvatarMap(map);
       }
+      // Bracket-Matches generieren falls nötig
+      if (adminData?.tournament?.format === 'bracket'
+          && adminData?.tournament?.status === 'active'
+          && (!adminData?.bracketMatches || adminData.bracketMatches.length === 0)
+          && adminData?.tournament?.participants?.length >= 2) {
+        console.log('⚠️ Admin: Bracket aktiv aber keine Matches — generiere...');
+        await generateBracketMatches(adminData.tournament);
+        const { data: refreshed } = await fetchTournamentAdminData(tournamentId);
+        if (refreshed) setData(refreshed);
+      }
     }
     setLoading(false);
   }, [tournamentId]);
@@ -211,6 +223,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
 
   const statusColor = (status) => {
     if (status === 'registration') return 'text-orange-400';
+    if (status === 'qualifying') return 'text-yellow-400';
     if (status === 'active') return 'text-green-400';
     if (status === 'finished') return 'text-neutral-400';
     if (status === 'cancelled') return 'text-red-400';
@@ -260,19 +273,20 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   const isFinished = tournament.status === 'finished';
   const isRegistration = tournament.status === 'registration';
   const isActive = tournament.status === 'active';
+  const isQualifying = tournament.status === 'qualifying';
   const isBracket = tournament.format === 'bracket';
   const isHighscore = tournament.format === 'highscore';
 
   const tabs = [
     { id: 'overview', label: 'Übersicht', icon: Eye },
     { id: 'registrations', label: 'Anmeldungen', icon: Users, badge: regStats.pending > 0 ? regStats.pending : null },
-    { id: 'leaderboard', label: isBracket ? 'Bracket' : 'Rangliste', icon: Trophy },
+    { id: 'leaderboard', label: isQualifying ? 'Qualifying' : isBracket ? 'Bracket' : 'Rangliste', icon: Trophy },
     { id: 'prizes', label: 'Preise', icon: Gift },
   ];
 
   // ── Helpers: DQ / Remove erlaubt? ──
   const canDisqualify = (entry) => {
-    if (isFinished) return false;
+    if (isFinished || isQualifying) return false;
     const key = (entry.name || entry.key || '').toLowerCase();
     if (isHighscore) {
       const isDQ = entry.played && entry.score === 0 && entry.timeMs === 999999999;
@@ -288,10 +302,19 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
   };
 
   const canRemove = (entry) => {
-    if (isFinished) return false;
+    if (isFinished || isQualifying) return false;
     if (isRegistration) return true;
     if (isHighscore && isActive && !entry.played) return true;
     return false;
+  };
+
+  // ── Qualifying Stats ──
+  const getQualifyingStats = () => {
+    if (!isQualifying) return null;
+    const participants = tournament.participants || [];
+    const scores = tournament.participant_scores || {};
+    const played = participants.filter(p => scores[(p || '').toLowerCase()] !== undefined && scores[(p || '').toLowerCase()] !== null).length;
+    return { total: participants.length, played, remaining: participants.length - played, target: tournament.qualifying_target || 0 };
   };
 
   // ══════════════════════════════════════
@@ -464,6 +487,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
             </h2>
             <p className={`text-xs font-bold mt-0.5 ${statusColor(tournament.status)}`}>
               {tournament.status === 'registration' ? 'Registrierung offen' :
+               tournament.status === 'qualifying' ? 'Qualifikation läuft' :
                tournament.status === 'active' ? 'Turnier läuft' :
                tournament.status === 'finished' ? 'Beendet' : tournament.status}
               {isBracket && ' • Bracket'}
@@ -518,16 +542,27 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                     {isRegistration && (
                       <button
                         disabled={!!actionLoading || gameStats.totalParticipants < 2}
-                        onClick={() => setConfirm({
-                          title: 'Turnier jetzt starten?',
-                          message: `Das Turnier wird mit ${gameStats.totalParticipants} Teilnehmern gestartet. Die Registrierung wird geschlossen.`,
-                          confirmLabel: 'Jetzt starten',
-                          variant: 'success',
-                          onConfirm: () => {
-                            setActionLoading('start');
-                            runAdminAction(() => startTournamentManually(tournament.id), 'Turnier gestartet!');
-                          },
-                        })}
+                        onClick={() => {
+                          const n = gameStats.totalParticipants;
+                          const isPow2 = n > 0 && (n & (n - 1)) === 0;
+                          let msg = `Das Turnier wird mit ${n} Teilnehmern gestartet.`;
+                          if (isBracket && !isPow2) {
+                            let p = 2; while (p * 2 < n) p *= 2;
+                            msg += ` Qualifikationsrunde wird gestartet (Top ${p} kommen ins Bracket).`;
+                          } else {
+                            msg += ' Die Registrierung wird geschlossen.';
+                          }
+                          setConfirm({
+                            title: 'Turnier jetzt starten?',
+                            message: msg,
+                            confirmLabel: 'Jetzt starten',
+                            variant: 'success',
+                            onConfirm: () => {
+                              setActionLoading('start');
+                              runAdminAction(() => startTournamentManually(tournament.id), 'Turnier gestartet!');
+                            },
+                          });
+                        }}
                         className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
                           gameStats.totalParticipants < 2
                             ? 'bg-white/5 text-neutral-600 cursor-not-allowed'
@@ -535,6 +570,27 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                         }`}
                       >
                         <Play size={14} /> Manuell starten
+                      </button>
+                    )}
+                    {isQualifying && (
+                      <button
+                        disabled={!!actionLoading}
+                        onClick={() => {
+                          const qs = getQualifyingStats();
+                          setConfirm({
+                            title: 'Qualifikation jetzt beenden?',
+                            message: `${qs?.played || 0} von ${qs?.total || 0} haben gespielt. Die besten ${qs?.target || '?'} kommen ins Bracket. Spieler die nicht gespielt haben scheiden aus.`,
+                            confirmLabel: 'Qualifying beenden',
+                            variant: 'warning',
+                            onConfirm: () => {
+                              setActionLoading('finalize-qualifying');
+                              runAdminAction(() => finalizeQualifying(tournament.id), 'Qualifying beendet — Bracket startet!');
+                            },
+                          });
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors"
+                      >
+                        <Trophy size={14} /> Qualifying beenden
                       </button>
                     )}
                     {isActive && isHighscore && (
@@ -565,6 +621,37 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                   )}
                 </div>
               )}
+
+              {/* Qualifying Fortschritt */}
+              {isQualifying && (() => {
+                const qs = getQualifyingStats();
+                if (!qs) return null;
+                return (
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                    <h3 className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-3">🎯 Qualifikation</h3>
+                    <div className="grid grid-cols-3 gap-3 mb-3">
+                      <div className="text-center">
+                        <div className="text-lg font-black text-white">{qs.played}</div>
+                        <div className="text-[9px] text-neutral-500 uppercase font-bold">Gespielt</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-black text-orange-400">{qs.remaining}</div>
+                        <div className="text-[9px] text-neutral-500 uppercase font-bold">Ausstehend</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-black text-green-400">{qs.target}</div>
+                        <div className="text-[9px] text-neutral-500 uppercase font-bold">Qualifizieren</div>
+                      </div>
+                    </div>
+                    <div className="w-full bg-white/10 rounded-full h-2">
+                      <div className="bg-yellow-400 h-2 rounded-full transition-all" style={{ width: `${qs.total > 0 ? (qs.played / qs.total) * 100 : 0}%` }} />
+                    </div>
+                    {qs.played === qs.total && qs.total > 0 && (
+                      <p className="text-xs text-green-400 font-bold mt-2 text-center">✓ Alle haben gespielt — Qualifying kann beendet werden</p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Quick Stats */}
               <div className="grid grid-cols-2 gap-3">
@@ -658,6 +745,12 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                       <span className="text-white font-bold">{tournament.sponsor_name}</span>
                     </div>
                   )}
+                  {tournament.qualifying_target && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500">Quali-Ziel</span>
+                      <span className="text-yellow-400 font-bold">Top {tournament.qualifying_target} → Bracket</span>
+                    </div>
+                  )}
                   {tournament.winner && (
                     <div className="flex justify-between items-center pt-2 border-t border-white/5">
                       <span className="text-yellow-500 font-bold">Gewinner</span>
@@ -723,14 +816,20 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
           {/* ═══════ LEADERBOARD / BRACKET TAB ═══════ */}
           {activeTab === 'leaderboard' && (
             <div>
-              {/* Highscore Rangliste */}
-              {isHighscore && (
+              {/* Highscore / Qualifying Rangliste */}
+              {(isHighscore || isQualifying) && (
                 <div className="space-y-2">
+                  {isQualifying && (
+                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 mb-3 text-center">
+                      <p className="text-xs text-yellow-400 font-bold">🎯 Qualifikation — Top {tournament.qualifying_target || '?'} kommen ins Bracket</p>
+                    </div>
+                  )}
                   {ranked.length === 0 ? (
                     <div className="text-center text-neutral-500 text-sm py-10">Noch keine Ergebnisse</div>
                   ) : ranked.map((entry, index) => {
                     const isWinner = tournament.winner && entry.name.toLowerCase() === tournament.winner.toLowerCase();
                     const isDQ = entry.played && entry.score === 0 && entry.timeMs === 999999999;
+                    const qualifies = isQualifying && index < (tournament.qualifying_target || 0) && entry.played;
                     const reg = registrations.find(r =>
                       r.player_username && r.player_username.toLowerCase() === entry.name.toLowerCase()
                     );
@@ -740,6 +839,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                         key={entry.key}
                         className={`flex items-center justify-between rounded-xl px-3 py-3 border ${
                           isDQ ? 'border-red-500/20 bg-red-500/5 opacity-60' :
+                          qualifies ? 'border-green-500/30 bg-green-500/5' :
                           isWinner ? 'border-yellow-500/40 bg-yellow-500/10' : 'border-white/5 bg-white/5'
                         }`}
                       >
@@ -753,6 +853,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
                               {isDQ && (
                                 <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">DQ</span>
                               )}
+                              {qualifies && <span className="text-[9px] text-green-400 font-bold flex-shrink-0">✓ Quali</span>}
                             </div>
                             {reg && (
                               <div className="text-[10px] text-neutral-500 flex items-center gap-1">
@@ -826,7 +927,7 @@ const TournamentAdminView = ({ tournamentId, onBack }) => {
               )}
 
               {/* Bracket */}
-              {isBracket && (
+              {isBracket && isActive && (
                 <div className="space-y-4">
                   {bracketMatches.length === 0 ? (
                     <div className="text-center text-neutral-500 text-sm py-10">

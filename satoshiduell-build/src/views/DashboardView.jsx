@@ -157,7 +157,7 @@ const DashboardView = ({
   useEffect(() => {
     const fetchOpenTournaments = async () => {
       const { data } = await fetchTournaments();
-      const openTournaments = (data || []).filter(t => ['registration', 'active'].includes(t.status));
+      const openTournaments = (data || []).filter(t => ['registration', 'qualifying', 'active'].includes(t.status));
       setHasOpenTournaments(openTournaments.length > 0);
 
       // Aktionen zählen: genehmigte Registrierungen + offene Bracket-Matches
@@ -185,7 +185,7 @@ const DashboardView = ({
         }
 
         // Offene Highscore-Turniere wo man Teilnehmer ist aber noch nicht gespielt hat
-        const activeHighscores = openTournaments.filter(t => t.format === 'highscore' && t.status === 'active');
+        const activeHighscores = openTournaments.filter(t => (t.format === 'highscore' && t.status === 'active') || t.status === 'qualifying');
         for (const t of activeHighscores) {
           const isParticipant = (t.participants || []).some(p => (p || '').toLowerCase() === userName.toLowerCase());
           if (isParticipant) {

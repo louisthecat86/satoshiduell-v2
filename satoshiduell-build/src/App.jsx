@@ -25,7 +25,7 @@ import TournamentAdminView from './views/TournamentAdminView';
 import TournamentRegistrationView from './views/TournamentRegistrationView';
 
 // --- SERVICES & UTILS ---
-import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult, submitBracketMatchResult, fetchMyBracketMatch  } from './services/supabase'; 
+import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult, submitBracketMatchResult, fetchMyBracketMatch, finalizeQualifying  } from './services/supabase'; 
 import { useTranslation } from './hooks/useTranslation';
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink, createRefundLink } from './services/lnbits'; 
@@ -206,6 +206,35 @@ const handleTournamentCreated = async (tournamentPayload, prizes = [], imageFile
 const handleStartTournament = async (tournament) => {
     if (!tournament) return;
 
+    // ── Qualifying → Gespeicherte Fragen nutzen (Fairness) ──
+    if (tournament.status === 'qualifying') {
+      const storedQuestions = tournament.questions || [];
+      const localizedQuestions = await ensureLocalizedQuestions(storedQuestions);
+
+      // Fallback falls keine Fragen gespeichert
+      if (!localizedQuestions || localizedQuestions.length === 0) {
+        const questionCount = tournament.question_count || 5;
+        const { data: questionIds } = await fetchQuestionIds(questionCount);
+        const fallbackQuestions = await ensureLocalizedQuestions(questionIds || []);
+        setCurrentTournamentGame({
+          ...tournament,
+          questions: fallbackQuestions,
+          mode: 'tournament',
+        });
+        navigate('tournament-game');
+        return;
+      }
+
+      setCurrentTournamentGame({
+        ...tournament,
+        questions: localizedQuestions,
+        mode: 'tournament',
+      });
+      navigate('tournament-game');
+      return;
+    }
+
+    // ── Bracket (wie bisher) ──
     if (tournament.format === 'bracket') {
       const { data: myMatch, error } = await fetchMyBracketMatch(tournament.id, userName);
       if (error || !myMatch) {
@@ -224,6 +253,7 @@ const handleStartTournament = async (tournament) => {
       return;
     }
 
+    // ── Highscore (wie bisher) ──
     const localizedQuestions = await ensureLocalizedQuestions(tournament.questions || []);
     setCurrentTournamentGame({ ...tournament, questions: localizedQuestions, mode: 'tournament' });
     navigate('tournament-game');

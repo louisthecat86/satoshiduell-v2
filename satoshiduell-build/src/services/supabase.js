@@ -10,6 +10,26 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 // HILFSFUNKTIONEN
 // ==========================================
 
+// Power-of-2 Helpers für Bracket-Turniere
+const isPowerOf2 = (n) => n > 0 && (n & (n - 1)) === 0;
+
+const nextLowerPowerOf2 = (n) => {
+  if (n <= 2) return 2;
+  let p = 2;
+  while (p * 2 < n) p *= 2;
+  return p;
+};
+
+const deduplicateParticipants = (participants) => {
+  const seen = new Set();
+  return (participants || []).filter(p => {
+    const key = (p || '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 // 1. Hashing (SHA-256)
 async function hashValue(value) {
   const msgBuffer = new TextEncoder().encode(String(value).trim());
@@ -1562,6 +1582,7 @@ export const addTournamentParticipant = async (tournamentId, username) => {
     return { data: null, error: new Error('Turnier ist abgelaufen') };
   }
 
+  // Case-insensitive Duplikat-Check
   const existing = (tournament.participants || []).some(
     p => (p || '').toLowerCase() === normalizedName.toLowerCase()
   );
@@ -1572,23 +1593,24 @@ export const addTournamentParticipant = async (tournamentId, username) => {
   }
 
   const updatedParticipants = [...(tournament.participants || []), normalizedName];
+  // Dedup nach dem Hinzufügen (Schutz gegen Race-Conditions)
+  const dedupedParticipants = deduplicateParticipants(updatedParticipants);
+
   const updates = {
-    participants: updatedParticipants,
-    current_participants: updatedParticipants.length,
+    participants: dedupedParticipants,
+    current_participants: dedupedParticipants.length,
   };
 
-  // Bracket: Wenn voll → active + Bracket generieren
   if (tournament.format === 'bracket'
       && tournament.max_players
-      && updatedParticipants.length >= tournament.max_players) {
+      && dedupedParticipants.length >= tournament.max_players) {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
   }
 
-  // Highscore: Wenn max_players gesetzt und voll → active
   if (tournament.format === 'highscore'
       && tournament.max_players
-      && updatedParticipants.length >= tournament.max_players
+      && dedupedParticipants.length >= tournament.max_players
       && tournament.status === 'registration') {
     updates.status = 'active';
     updates.started_at = new Date().toISOString();
@@ -1596,7 +1618,6 @@ export const addTournamentParticipant = async (tournamentId, username) => {
 
   const { data, error } = await updateTournament(tournamentId, updates);
 
-  // Bei Bracket: Matches generieren wenn gerade voll geworden
   if (data?.format === 'bracket' && data?.status === 'active') {
     const { data: existingMatches } = await supabase
       .from('tournament_bracket_matches')
@@ -1646,7 +1667,9 @@ export const submitTournamentResult = async (tournamentId, username, score, time
   const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
   if (fetchError || !tournament) return { data: null, error: fetchError };
 
-  if (tournament.format !== 'highscore') {
+  // Erlaubt für Highscore UND für Bracket in Qualifying-Phase
+  const isQualifying = tournament.status === 'qualifying';
+  if (tournament.format !== 'highscore' && !isQualifying) {
     return { data: null, error: new Error('Falsches Format — nutze submitBracketMatchResult für Bracket') };
   }
 
@@ -1673,7 +1696,25 @@ export const submitTournamentResult = async (tournamentId, username, score, time
 
   const updates = { participant_scores: scores, participant_times: times };
 
-  // Finalisierung prüfen
+  // ── QUALIFYING ──
+  if (isQualifying) {
+    const allPlayed = normalizedParticipants.length > 0
+      && normalizedParticipants.every(p => scores[p] !== undefined && scores[p] !== null);
+
+    const { data: savedData, error: saveError } = await updateTournament(tournamentId, updates);
+    if (saveError) return { data: null, error: saveError };
+
+    // Wenn alle gespielt haben → Qualifying im Hintergrund abschließen
+    // WICHTIG: savedData (mit Scores) zurückgeben, NICHT das finalisierte Tournament (Scores resettet).
+    // So zeigt der ResultView dem letzten Spieler korrekt die Quali-Rangliste.
+    if (allPlayed) {
+      finalizeQualifying(tournamentId); // Fire-and-forget
+    }
+
+    return { data: savedData, error: null };
+  }
+
+  // ── HIGHSCORE ──
   const allPlayed = normalizedParticipants.length > 0
     && normalizedParticipants.every(p => scores[p] !== undefined && scores[p] !== null);
   const hasCap = tournament.max_players && tournament.max_players > 0;
@@ -1719,13 +1760,171 @@ export const submitTournamentResult = async (tournamentId, username, score, time
   return { data, error };
 };
 
+// ============================================================
+// QUALIFYING FINALISIERUNG
+// ============================================================
+
+export const finalizeQualifying = async (tournamentId) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  if (tournament.status !== 'qualifying') {
+    return { data: tournament, error: null };
+  }
+
+  const target = tournament.qualifying_target;
+  if (!target) {
+    return { data: null, error: new Error('Kein qualifying_target gesetzt') };
+  }
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const scores = tournament.participant_scores || {};
+  const times = tournament.participant_times || {};
+
+  const ranked = buildRankedList(participants, scores, times);
+  const playedRanked = ranked.filter(r => r.played);
+
+  if (playedRanked.length < 2) {
+    return { data: null, error: new Error('Nicht genug Spieler haben gespielt für das Bracket') };
+  }
+
+  // Tatsächliche Bracket-Größe: nächste 2er-Potenz ≤ min(gespielte, target)
+  const availablePlayers = Math.min(playedRanked.length, target);
+  const bracketSize = isPowerOf2(availablePlayers) ? availablePlayers : nextLowerPowerOf2(availablePlayers);
+  const qualified = playedRanked.slice(0, bracketSize).map(r => r.name);
+
+  if (qualified.length < 2) {
+    return { data: null, error: new Error('Nicht genug Spieler für das Bracket') };
+  }
+
+  const updates = {
+    participants: qualified,
+    current_participants: qualified.length,
+    max_players: bracketSize,
+    status: 'active',
+    participant_scores: {},
+    participant_times: {},
+    questions: null,
+    questions_per_round: tournament.questions_per_round || getDefaultQuestionsPerRound(bracketSize),
+  };
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+  if (error) return { data: null, error };
+
+  if (data) {
+    const { data: existingMatches } = await supabase
+      .from('tournament_bracket_matches')
+      .select('id')
+      .eq('tournament_id', tournamentId)
+      .limit(1);
+
+    if (!existingMatches || existingMatches.length === 0) {
+      await generateBracketMatches(data);
+    }
+  }
+
+  return { data, error: null };
+};
+
+// ============================================================
+// AUTO-START BEI ABGELAUFENER REGISTRIERUNGS-DEADLINE
+// ============================================================
+
+export const autoStartBracketFromDeadline = async (tournamentId) => {
+  const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
+  if (fetchError || !tournament) return { data: null, error: fetchError };
+
+  if (tournament.format !== 'bracket' || tournament.status !== 'registration') {
+    return { data: tournament, error: null };
+  }
+
+  const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+  const dedupedParticipants = deduplicateParticipants(participants);
+
+  if (dedupedParticipants.length < 2) {
+    const { data } = await updateTournament(tournamentId, {
+      status: 'cancelled',
+      participants: dedupedParticipants,
+      current_participants: dedupedParticipants.length,
+    });
+    return { data, error: new Error('Zu wenig Teilnehmer — Turnier wurde abgesagt') };
+  }
+
+  const updates = {
+    participants: dedupedParticipants,
+    current_participants: dedupedParticipants.length,
+    started_at: new Date().toISOString(),
+  };
+
+  if (isPowerOf2(dedupedParticipants.length)) {
+    const bracketSize = dedupedParticipants.length;
+    updates.status = 'active';
+    updates.max_players = bracketSize;
+    updates.questions_per_round = tournament.questions_per_round || getDefaultQuestionsPerRound(bracketSize);
+  } else {
+    const target = nextLowerPowerOf2(dedupedParticipants.length);
+    const qualiQuestionCount = tournament.qualifying_question_count || tournament.question_count || 5;
+    const { data: questionIds } = await fetchQuestionIds(qualiQuestionCount);
+
+    updates.status = 'qualifying';
+    updates.qualifying_target = target;
+    updates.question_count = qualiQuestionCount;
+    updates.questions = questionIds || [];
+  }
+
+  const { data, error } = await updateTournament(tournamentId, updates);
+
+  if (data?.format === 'bracket' && data?.status === 'active') {
+    const { data: existingMatches } = await supabase
+      .from('tournament_bracket_matches')
+      .select('id')
+      .eq('tournament_id', tournamentId)
+      .limit(1);
+
+    if (!existingMatches || existingMatches.length === 0) {
+      await generateBracketMatches(data);
+    }
+  }
+
+  return { data, error };
+};
+
+// ============================================================
+// TURNIER FINALISIERUNG (erweitert für Bracket + Qualifying)
+// ============================================================
+
 export const finalizeTournamentIfReady = async (tournamentId) => {
   const { data: tournament, error: fetchError } = await fetchTournamentById(tournamentId);
   if (fetchError || !tournament) return { data: null, error: fetchError };
   if (tournament.status === 'finished') return { data: tournament, error: null };
-  if (tournament.format === 'bracket') return { data: tournament, error: null };
-  if (!isTournamentExpired(tournament)) return { data: tournament, error: null };
 
+  const isExpired = tournament.play_until && new Date(tournament.play_until) <= new Date();
+  if (!isExpired) return { data: tournament, error: null };
+
+  // Bracket in Registrierung + Deadline abgelaufen → Auto-Start
+  if (tournament.format === 'bracket' && tournament.status === 'registration') {
+    return autoStartBracketFromDeadline(tournamentId);
+  }
+
+  // Qualifying → nur finalisieren wenn alle gespielt haben
+  if (tournament.status === 'qualifying') {
+    const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
+    const scores = tournament.participant_scores || {};
+    const normalizedParticipants = participants.map(p => (p || '').toLowerCase());
+    const allPlayed = normalizedParticipants.length > 0
+      && normalizedParticipants.every(p => scores[p] !== undefined && scores[p] !== null);
+
+    if (allPlayed) {
+      return finalizeQualifying(tournamentId);
+    }
+
+    return { data: tournament, error: null };
+  }
+
+  // Bracket aktiv → nicht hier finalisieren (passiert über Matches)
+  if (tournament.format === 'bracket') return { data: tournament, error: null };
+
+  // Highscore
   const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
   if (participants.length === 0) return { data: tournament, error: null };
 
@@ -1744,14 +1943,12 @@ export const finalizeTournamentIfReady = async (tournamentId) => {
     winnerNpub = profile?.npub || null;
   }
 
-  const updates = {
+  const { data, error } = await updateTournament(tournamentId, {
     status: 'finished',
     finished_at: new Date().toISOString(),
     winner: winnerName,
     winner_npub: winnerNpub,
-  };
-
-  const { data, error } = await updateTournament(tournamentId, updates);
+  });
 
   if (data) {
     await assignPrizesToWinners(tournamentId, ranked);
@@ -2587,18 +2784,45 @@ export const startTournamentManually = async (tournamentId) => {
   }
 
   const participants = Array.isArray(tournament.participants) ? tournament.participants : [];
-  if (participants.length < 2) {
+  const dedupedParticipants = deduplicateParticipants(participants);
+
+  if (dedupedParticipants.length < 2) {
     return { data: null, error: new Error('Mindestens 2 Teilnehmer nötig') };
   }
 
   const updates = {
-    status: 'active',
-    started_at: new Date().toISOString(),
+    participants: dedupedParticipants,
+    current_participants: dedupedParticipants.length,
   };
+
+  if (tournament.format === 'bracket') {
+    if (isPowerOf2(dedupedParticipants.length)) {
+      // Exakte 2er-Potenz → direkt Bracket
+      const bracketSize = dedupedParticipants.length;
+      updates.status = 'active';
+      updates.started_at = new Date().toISOString();
+      updates.max_players = bracketSize;
+      updates.questions_per_round = tournament.questions_per_round || getDefaultQuestionsPerRound(bracketSize);
+    } else {
+      // Nicht 2er-Potenz → Qualifikationsrunde
+      const target = nextLowerPowerOf2(dedupedParticipants.length);
+      const qualiQuestionCount = tournament.qualifying_question_count || tournament.question_count || 5;
+      const { data: questionIds } = await fetchQuestionIds(qualiQuestionCount);
+
+      updates.status = 'qualifying';
+      updates.qualifying_target = target;
+      updates.question_count = qualiQuestionCount;
+      updates.questions = questionIds || [];
+      updates.started_at = new Date().toISOString();
+    }
+  } else {
+    updates.status = 'active';
+    updates.started_at = new Date().toISOString();
+  }
 
   const { data, error } = await updateTournament(tournamentId, updates);
 
-  if (data?.format === 'bracket') {
+  if (data?.format === 'bracket' && data?.status === 'active') {
     const { data: existingMatches } = await supabase
       .from('tournament_bracket_matches')
       .select('id')
