@@ -12,14 +12,15 @@ export const formatName = (name) => {
 };
 
 /**
- * Formatiert Zeit in mm:ss Format
- * @param {number} seconds - Zeit in Sekunden
- * @returns {string} Formatierte Zeit
+ * Formatiert Zeit in mm:ss.ms Format
+ * @param {number} seconds - Zeit in Sekunden (kann Dezimalstellen haben)
+ * @returns {string} Formatierte Zeit mit Millisekunden
  */
 export const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
 };
 
 /**

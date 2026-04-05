@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Crown } from 'lucide-react';
 import { formatTime } from '../../utils/formatters';
 
-const ROUND_ORDER = ['round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
+const ROUND_ORDER = ['round_of_128', 'round_of_64', 'round_of_32', 'round_of_16', 'quarter', 'semi', 'final'];
 const ROUND_LABELS = {
+  round_of_128: 'Runde der 128',
+  round_of_64: 'Runde der 64',
   round_of_32: 'Runde der 32',
   round_of_16: 'Achtelfinale',
   quarter: 'Viertelfinale',
@@ -62,7 +64,7 @@ const BracketTree = ({ matches, currentUser }) => {
     return 'pending';
   };
 
-  const PlayerSlot = ({ name, score, timeMs, isWinner, isLoser, isMe }) => {
+  const PlayerSlot = ({ name, score, timeMs, isWinner, isLoser, isMe, hasPlayedHidden }) => {
     const hasResult = score !== null && score !== undefined;
 
     return (
@@ -96,6 +98,9 @@ const BracketTree = ({ matches, currentUser }) => {
             )}
           </div>
         )}
+        {hasPlayedHidden && (
+          <span className="text-[9px] text-neutral-600 flex-shrink-0 ml-2">✓ Hat gespielt</span>
+        )}
       </div>
     );
   };
@@ -107,6 +112,15 @@ const BracketTree = ({ matches, currentUser }) => {
     const p1IsMe = me && (match.player1 || '').toLowerCase() === me;
     const p2IsMe = me && (match.player2 || '').toLowerCase() === me;
     const isMyMatch = p1IsMe || p2IsMe;
+
+    // Score-Sichtbarkeit: Erst anzeigen wenn BEIDE gespielt haben
+    const bothPlayed = match.player1_score !== null && match.player1_score !== undefined
+                    && match.player2_score !== null && match.player2_score !== undefined;
+    const showAllScores = isFinished || bothPlayed;
+
+    // Eigene Score immer sichtbar, gegnerische erst wenn beide gespielt haben
+    const p1ScoreVisible = showAllScores || p1IsMe;
+    const p2ScoreVisible = showAllScores || p2IsMe;
 
     return (
       <div className={`rounded-xl overflow-hidden ${
@@ -127,10 +141,13 @@ const BracketTree = ({ matches, currentUser }) => {
 
         <div className="p-2 space-y-1.5 bg-[#0d0d0d]">
           <PlayerSlot
-            name={match.player1} score={match.player1_score} timeMs={match.player1_time_ms}
+            name={match.player1}
+            score={p1ScoreVisible ? match.player1_score : null}
+            timeMs={p1ScoreVisible ? match.player1_time_ms : null}
             isWinner={isFinished && match.winner === match.player1}
             isLoser={isFinished && match.winner && match.winner !== match.player1}
             isMe={p1IsMe}
+            hasPlayedHidden={!p1ScoreVisible && match.player1_score !== null && match.player1_score !== undefined}
           />
           <div className="flex items-center gap-2 px-2">
             <div className="flex-1 h-px bg-white/5" />
@@ -138,10 +155,13 @@ const BracketTree = ({ matches, currentUser }) => {
             <div className="flex-1 h-px bg-white/5" />
           </div>
           <PlayerSlot
-            name={match.player2} score={match.player2_score} timeMs={match.player2_time_ms}
+            name={match.player2}
+            score={p2ScoreVisible ? match.player2_score : null}
+            timeMs={p2ScoreVisible ? match.player2_time_ms : null}
             isWinner={isFinished && match.winner === match.player2}
             isLoser={isFinished && match.winner && match.winner !== match.player2}
             isMe={p2IsMe}
+            hasPlayedHidden={!p2ScoreVisible && match.player2_score !== null && match.player2_score !== undefined}
           />
         </div>
 
