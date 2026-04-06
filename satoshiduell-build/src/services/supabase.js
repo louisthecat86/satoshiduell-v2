@@ -1890,6 +1890,29 @@ export const autoStartBracketFromDeadline = async (tournamentId) => {
 };
 
 // ============================================================
+// NOSTR ANKÜNDIGUNG
+// ============================================================
+
+export const announceOnNostr = async (tournamentId, action) => {
+  try {
+    const { data, error } = await supabase.functions.invoke('nostr-announce', {
+      body: { action, tournamentId },
+    });
+    if (error) {
+      console.error('Nostr announce error:', error);
+      return { data: null, error };
+    }
+    if (data?.ok) {
+      console.log(`Nostr: ${action} → ${data.published}/${data.relays} Relays`);
+    }
+    return { data, error: null };
+  } catch (err) {
+    console.error('Nostr announce failed:', err);
+    return { data: null, error: err };
+  }
+};
+
+// ============================================================
 // TURNIER FINALISIERUNG (erweitert für Bracket + Qualifying)
 // ============================================================
 
@@ -1955,6 +1978,10 @@ export const finalizeTournamentIfReady = async (tournamentId) => {
     if (data.image_path) {
       await deleteTournamentImage(data.image_path);
       await updateTournament(tournamentId, { image_url: null, image_path: null });
+    }
+    // Nostr-Ankündigung
+    if (data.nostr_announce) {
+      announceOnNostr(data.id, 'tournament_finished').catch(() => {});
     }
   }
 
@@ -2834,6 +2861,11 @@ export const startTournamentManually = async (tournamentId) => {
     }
   }
 
+  // Nostr-Ankündigung
+  if (data?.nostr_announce) {
+    announceOnNostr(data.id, 'tournament_started').catch(() => {});
+  }
+
   return { data, error };
 };
 
@@ -2881,6 +2913,10 @@ export const finalizeTournamentManually = async (tournamentId) => {
     if (data.image_path) {
       await deleteTournamentImage(data.image_path);
       await updateTournament(tournamentId, { image_url: null, image_path: null });
+    }
+    // Nostr-Ankündigung
+    if (data.nostr_announce) {
+      announceOnNostr(data.id, 'tournament_finished').catch(() => {});
     }
   }
 

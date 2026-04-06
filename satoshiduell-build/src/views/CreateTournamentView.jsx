@@ -36,6 +36,8 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
     // Step 4: Sponsor & Review
     sponsorName: '',
     sponsorUrl: '',
+    nostrAnnounce: true,
+    nostrCreatorOptIn: false,
   });
 
   const TOTAL_STEPS = 4;
@@ -152,6 +154,8 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
       contact_info: form.contactInfo.trim() || null,
       sponsor_name: form.sponsorName.trim() || null,
       sponsor_url: form.sponsorUrl.trim() || null,
+      nostr_announce: form.nostrAnnounce,
+      creator_announce_npub: form.nostrCreatorOptIn && user?.npub ? user.npub : null,
       question_count: form.format === 'highscore' ? form.questionCount : null,
       qualifying_question_count: form.format === 'bracket' ? (parseInt(form.qualifyingQuestionCount) || 5) : null,
       max_players: form.maxPlayers ? parseInt(form.maxPlayers, 10) : null,
@@ -613,6 +617,54 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                 />
               </div>
 
+              {/* Nostr Ankündigung */}
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-xs font-bold text-purple-400 uppercase">Nostr-Ankündigung</p>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Turnier wird automatisch auf Nostr gepostet</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateForm('nostrAnnounce', !form.nostrAnnounce)}
+                    className={`w-12 h-6 rounded-full transition-colors flex items-center px-1 ${
+                      form.nostrAnnounce ? 'bg-purple-500 justify-end' : 'bg-white/10 justify-start'
+                    }`}
+                  >
+                    <div className="w-4 h-4 rounded-full bg-white shadow-md" />
+                  </button>
+                </div>
+
+                {form.nostrAnnounce && user?.npub && (
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        onClick={() => updateForm('nostrCreatorOptIn', !form.nostrCreatorOptIn)}
+                        className={`w-5 h-5 rounded-md border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors ${
+                          form.nostrCreatorOptIn ? 'bg-purple-500 border-purple-500' : 'border-white/20 bg-transparent'
+                        }`}
+                      >
+                        {form.nostrCreatorOptIn && <span className="text-white text-[10px] font-bold">✓</span>}
+                      </button>
+                      <div>
+                        <p className="text-xs text-white font-bold">Als Creator taggen</p>
+                        <p className="text-[10px] text-neutral-500 mt-0.5">
+                          Dein npub wird im Nostr-Post getaggt. Du bekommst Benachrichtigungen und Interessierte sehen wer das Turnier veranstaltet.
+                        </p>
+                        <p className="text-[10px] text-neutral-600 font-mono mt-1 truncate">{user.npub}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {form.nostrAnnounce && (
+                  <p className="text-[10px] text-neutral-600 mt-2">
+                    Posts werden vom SatoshiDuell-Account gesendet bei: Turnier erstellt, gestartet und beendet.
+                  </p>
+                )}
+              </div>
+
               {/* Review Card */}
               <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-2xl p-4 mt-4">
                 <h3 className="text-lg font-black text-white mb-4">{form.name || 'Turniername'}</h3>
@@ -657,6 +709,14 @@ const CreateTournamentView = ({ onCancel, onConfirm }) => {
                     <div className="col-span-2">
                       <span className="text-[10px] text-neutral-400 font-bold">SPONSOR</span>
                       <p className="text-white font-black">{form.sponsorName}</p>
+                    </div>
+                  )}
+                  {form.nostrAnnounce && (
+                    <div className="col-span-2">
+                      <span className="text-[10px] text-neutral-400 font-bold">NOSTR</span>
+                      <p className="text-white font-black">
+                        ✓ Ankündigung aktiv{form.nostrCreatorOptIn && user?.npub ? ' + Creator getaggt' : ''}
+                      </p>
                     </div>
                   )}
                 </div>

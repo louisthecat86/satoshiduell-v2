@@ -25,7 +25,7 @@ import TournamentAdminView from './views/TournamentAdminView';
 import TournamentRegistrationView from './views/TournamentRegistrationView';
 
 // --- SERVICES & UTILS ---
-import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult, submitBracketMatchResult, fetchMyBracketMatch, finalizeQualifying  } from './services/supabase'; 
+import { joinDuel, joinArena, activateDuel, submitGameResult, submitArenaResult, getGameStatus, fetchUserGames, recalculateUserStats, recordCreatorPayment, supabase, createTournament, fetchQuestionIds, fetchQuestionsByIds, uploadTournamentImage, updateTournament, submitTournamentResult, submitBracketMatchResult, fetchMyBracketMatch, finalizeQualifying, announceOnNostr  } from './services/supabase'; 
 import { useTranslation } from './hooks/useTranslation';
 import { useAuth } from './hooks/useAuth';
 import { createWithdrawLink, createRefundLink } from './services/lnbits'; 
@@ -197,6 +197,11 @@ const handleTournamentCreated = async (tournamentPayload, prizes = [], imageFile
       } catch (uploadError) {
         console.error('Fehler beim Hochladen des Turnierbilds:', uploadError);
       }
+    }
+
+    // Nostr-Ankündigung (Fire-and-forget)
+    if (data.id) {
+      announceOnNostr(data.id, 'tournament_created').catch(() => {});
     }
 
     navigate('tournaments');
