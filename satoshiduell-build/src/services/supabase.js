@@ -1823,6 +1823,11 @@ export const finalizeQualifying = async (tournamentId) => {
     }
   }
 
+  // Nostr-Ankündigung: Qualifying beendet, Bracket startet
+  if (data?.nostr_announce) {
+    announceOnNostr(data.id, 'qualifying_ended').catch(() => {});
+  }
+
   return { data, error: null };
 };
 
@@ -1886,6 +1891,11 @@ export const autoStartBracketFromDeadline = async (tournamentId) => {
     }
   }
 
+  // Nostr-Ankündigung: Turnier automatisch gestartet
+  if (data?.nostr_announce) {
+    announceOnNostr(data.id, 'tournament_started').catch(() => {});
+  }
+
   return { data, error };
 };
 
@@ -1893,10 +1903,13 @@ export const autoStartBracketFromDeadline = async (tournamentId) => {
 // NOSTR ANKÜNDIGUNG
 // ============================================================
 
-export const announceOnNostr = async (tournamentId, action) => {
+export const announceOnNostr = async (tournamentId, action, matchPlayers = null) => {
   try {
+    const body = { action, tournamentId };
+    if (matchPlayers) body.matchPlayers = matchPlayers;
+
     const { data, error } = await supabase.functions.invoke('nostr-announce', {
-      body: { action, tournamentId },
+      body,
     });
     if (error) {
       console.error('Nostr announce error:', error);
@@ -2272,6 +2285,19 @@ const advanceBracketWinner = async (finishedMatch) => {
 
   await updateBracketSummary(tournament_id);
 
+  // Nostr-Ankündigung: Nächste Runde bereit
+  if (tournament?.nostr_announce) {
+    const readyPlayers = [];
+    for (let i = 0; i < nextRoundMatches.length; i++) {
+      const p1 = winners[i * 2] || null;
+      const p2 = winners[i * 2 + 1] || null;
+      if (p1 && p2) { readyPlayers.push(p1, p2); }
+    }
+    if (readyPlayers.length > 0) {
+      announceOnNostr(tournament_id, 'round_started', readyPlayers).catch(() => {});
+    }
+  }
+
   // ── NEU: Bye-Matches rekursiv weiterleiten ──
   // Ohne diesen Block bleibt das Turnier hängen wenn ein Spieler
   // in der nächsten Runde keinen Gegner hat (z.B. bei manuellem
@@ -2325,6 +2351,11 @@ const finalizeBracketTournament = async (tournamentId, winnerName) => {
   if (t?.image_path) {
     await deleteTournamentImage(t.image_path);
     await updateTournament(tournamentId, { image_url: null, image_path: null });
+  }
+
+  // Nostr-Ankündigung: Bracket-Turnier beendet
+  if (t?.nostr_announce) {
+    announceOnNostr(tournamentId, 'tournament_finished').catch(() => {});
   }
 };
 

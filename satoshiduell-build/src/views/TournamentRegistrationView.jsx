@@ -33,7 +33,7 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
   }, [tournamentId, inviteCode]);
 
   const identityOptions = [
-    { type: 'nostr', label: 'Nostr (npub)', desc: 'Kryptographisch verifiziert via Amber/NIP-55', placeholder: 'npub1...' },
+    { type: 'nostr', label: 'Nostr (npub)', desc: 'Automatische Turnier-Benachrichtigungen via Nostr', placeholder: 'npub1...', hasNotifications: true },
     { type: 'telegram', label: 'Telegram', desc: 'Dein Telegram-Handle', placeholder: '@dein_handle' },
     { type: 'twitter', label: 'X / Twitter', desc: 'Dein X/Twitter-Handle', placeholder: '@dein_handle' },
     { type: 'email', label: 'E-Mail', desc: 'Deine E-Mail-Adresse', placeholder: 'name@example.com' },
@@ -133,18 +133,34 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                 <Shield size={40} className="text-purple-400 mx-auto mb-3" />
                 <h3 className="text-lg font-bold text-white mb-2">Kontaktweg hinterlegen</h3>
                 <p className="text-sm text-neutral-400">
-                  Wähle wie dich der Veranstalter kontaktieren soll. Du erhältst darüber deinen Teilnahme-Code.
+                  Wähle wie dich der Veranstalter kontaktieren soll.
                 </p>
               </div>
+
+              {/* Nostr-Hinweis */}
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3 flex items-start gap-2">
+                <SocialIcon type="nostr" size={16} />
+                <p className="text-[10px] text-purple-300">
+                  <span className="font-bold">Tipp:</span> Nur bei Registrierung mit Nostr (npub) wirst du automatisch über den Turnierstand benachrichtigt — direkt in deinem Nostr-Client.
+                </p>
+              </div>
+
               <div className="space-y-3">
                 {identityOptions.map(option => (
                   <button key={option.type} onClick={() => handleSelectIdentity(option.type)}
-                    className="w-full p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-purple-500/30 transition-all text-left flex items-start gap-3">
+                    className={`w-full p-4 rounded-xl border bg-white/5 hover:bg-white/10 transition-all text-left flex items-start gap-3 ${
+                      option.hasNotifications ? 'border-purple-500/30 hover:border-purple-500/50' : 'border-white/10 hover:border-white/20'
+                    }`}>
                     <div className="mt-1 flex-shrink-0">
                       <SocialIcon type={option.type} size={24} />
                     </div>
-                    <div>
-                      <div className="text-sm font-bold text-white">{option.label}</div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-white">{option.label}</span>
+                        {option.hasNotifications && (
+                          <span className="text-[8px] bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">🔔 BENACHRICHTIGUNGEN</span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-neutral-400 mt-1">{option.desc}</div>
                     </div>
                   </button>
@@ -174,11 +190,20 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
                         <p className="text-xs text-green-400 font-bold">✓ npub aus deinem Profil erkannt</p>
                       </div>
                     )}
-                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
-                      <p className="text-xs text-yellow-300">
-                        Der Veranstalter sieht diese Kontaktinfo und schickt dir darüber deinen persönlichen Teilnahme-Code. Bitte gib korrekte Daten an.
-                      </p>
-                    </div>
+                    {identityType === 'nostr' && (
+                      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3">
+                        <p className="text-xs text-purple-300">
+                          🔔 Du wirst automatisch über Nostr benachrichtigt wenn dein Match ansteht, eine neue Runde startet oder das Turnier beendet ist.
+                        </p>
+                      </div>
+                    )}
+                    {identityType !== 'nostr' && (
+                      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
+                        <p className="text-xs text-yellow-300">
+                          Der Veranstalter sieht diese Kontaktinfo um dich zu erreichen. Bitte gib korrekte Daten an. Automatische Turnier-Benachrichtigungen gibt es nur bei Anmeldung mit Nostr.
+                        </p>
+                      </div>
+                    )}
                     {resultError && <div className="text-center text-xs text-red-400 font-bold p-2">{resultError}</div>}
                     <div className="flex gap-3 mt-4">
                       <button onClick={() => { setStep('select'); setResultError(''); }}
@@ -202,16 +227,21 @@ const TournamentRegistrationView = ({ tournamentId, inviteCode, onBack, onTokenR
               </div>
               <h3 className="text-xl font-black text-white">Registrierung erfolgreich!</h3>
               <p className="text-sm text-neutral-400">
-                Deine Anmeldung ist beim Veranstalter eingegangen. Nach Prüfung erhältst du deinen persönlichen Teilnahme-Code über deinen hinterlegten Kontaktweg.
+                Deine Anmeldung ist beim Veranstalter eingegangen. Sobald er dich genehmigt, wirst du automatisch dem Turnier hinzugefügt.
               </p>
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-left">
                 <p className="text-[10px] text-neutral-500 uppercase font-bold mb-2">So geht es weiter</p>
                 <div className="space-y-2 text-xs text-neutral-300">
                   <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">1.</span><span>Der Veranstalter prüft deine Anmeldung</span></div>
-                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">2.</span><span>Du erhältst einen Teilnahme-Code über deinen Handle</span></div>
-                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">3.</span><span>Öffne das Turnier in der Übersicht und gib den Code ein</span></div>
+                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">2.</span><span>Bei Genehmigung wirst du automatisch ins Turnier aufgenommen</span></div>
+                  <div className="flex items-start gap-2"><span className="text-purple-400 font-bold">3.</span><span>Öffne das Turnier in der Übersicht um deinen Status zu sehen</span></div>
                 </div>
               </div>
+              {identityType === 'nostr' && (
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-3">
+                  <p className="text-xs text-purple-300">🔔 Du wirst über Nostr benachrichtigt wenn es losgeht.</p>
+                </div>
+              )}
               {tournament?.contact_info && (
                 <div className="bg-white/5 border border-white/10 rounded-xl p-4">
                   <p className="text-xs text-neutral-500 mb-1">Kontakt des Veranstalters:</p>

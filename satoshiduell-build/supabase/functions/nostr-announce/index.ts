@@ -2,17 +2,18 @@
 // Edge Function: nostr-announce
 // Pfad: supabase/functions/nostr-announce/index.ts
 // ============================================================
-// POST { action, tournamentId, creatorNpub? }
+// POST { action, tournamentId, matchPlayers? }
 //
 // Actions:
-//   'tournament_created'  → "🏆 Neues Turnier: ..."
-//   'tournament_started'  → "⚔️ Turnier gestartet: ..."
-//   'tournament_finished' → "🎉 Gewinner: ..."
+//   'tournament_created'   → Neues Turnier angekündigt
+//   'tournament_started'   → Turnier/Qualifying gestartet + Teilnehmer getaggt
+//   'qualifying_ended'     → Bracket startet, Qualifizierte getaggt
+//   'round_started'        → Neue Runde, betroffene Spieler getaggt
+//   'tournament_finished'  → Gewinner + alle Teilnehmer getaggt
 // ============================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPublicKey, finalizeEvent } from 'https://esm.sh/nostr-tools@2.7.0/pure';
-import { bytesToHex, hexToBytes } from 'https://esm.sh/@noble/hashes@1.3.3/utils';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
@@ -44,33 +45,8 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
 // ── Nostr Helpers ──
 
 function nsecToHex(nsec: string): Uint8Array {
-  // bech32 decode nsec to hex private key
   const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-  const data = nsec.slice(5); // remove "nsec1"
-  const values: number[] = [];
-  for (const c of data) {
-    const v = CHARSET.indexOf(c);
-    if (v === -1) throw new Error('Invalid bech32 character');
-    values.push(v);
-  }
-  // Convert 5-bit to 8-bit
-  let acc = 0;
-  let bits = 0;
-  const bytes: number[] = [];
-  for (const v of values.slice(0, -6)) { // remove checksum
-    acc = (acc << 5) | v;
-    bits += 5;
-    while (bits >= 8) {
-      bits -= 8;
-      bytes.push((acc >> bits) & 0xff);
-    }
-  }
-  return new Uint8Array(bytes);
-}
-
-function npubToHex(npub: string): string {
-  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-  const data = npub.slice(5); // remove "npub1"
+  const data = nsec.slice(5);
   const values: number[] = [];
   for (const c of data) {
     const v = CHARSET.indexOf(c);
@@ -88,7 +64,35 @@ function npubToHex(npub: string): string {
       bytes.push((acc >> bits) & 0xff);
     }
   }
-  return Array.from(new Uint8Array(bytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return new Uint8Array(bytes);
+}
+
+function npubToHex(npub: string): string | null {
+  try {
+    if (!npub || !npub.startsWith('npub1')) return null;
+    const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    const data = npub.slice(5);
+    const values: number[] = [];
+    for (const c of data) {
+      const v = CHARSET.indexOf(c);
+      if (v === -1) return null;
+      values.push(v);
+    }
+    let acc = 0;
+    let bits = 0;
+    const bytes: number[] = [];
+    for (const v of values.slice(0, -6)) {
+      acc = (acc << 5) | v;
+      bits += 5;
+      while (bits >= 8) {
+        bits -= 8;
+        bytes.push((acc >> bits) & 0xff);
+      }
+    }
+    return Array.from(new Uint8Array(bytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null;
+  }
 }
 
 async function publishToRelay(relay: string, event: Record<string, unknown>): Promise<boolean> {
@@ -129,61 +133,99 @@ async function publishToRelay(relay: string, event: Record<string, unknown>): Pr
   });
 }
 
+// ── Teilnehmer-npubs sammeln ──
+
+async function collectParticipantNpubs(tournamentId: number, participants: string[]): Promise<string[]> {
+  const npubHexSet = new Set<string>();
+
+  if (!participants || participants.length === 0) return [];
+
+  // 1. npubs aus Profilen laden
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('username, npub')
+    .in('username', participants);
+
+  for (const p of profiles || []) {
+    if (p.npub) {
+      const hex = npubToHex(p.npub);
+      if (hex) npubHexSet.add(hex);
+    }
+  }
+
+  // 2. npubs aus Registrierungen (identity_type = 'nostr')
+  const { data: regs } = await supabase
+    .from('tournament_registrations')
+    .select('identity_type, identity_value')
+    .eq('tournament_id', tournamentId)
+    .eq('identity_type', 'nostr')
+    .eq('status', 'redeemed');
+
+  for (const r of regs || []) {
+    if (r.identity_value) {
+      const hex = npubToHex(r.identity_value);
+      if (hex) npubHexSet.add(hex);
+    }
+  }
+
+  return Array.from(npubHexSet);
+}
+
 // ── Post Builder ──
 
-function buildTournamentCreatedPost(tournament: Record<string, unknown>): string {
+function buildCreatedPost(tournament: any, prizes: any[]): string {
   const name = tournament.name || 'Unbekannt';
   const format = tournament.format === 'bracket' ? 'Bracket K.O.' : 'Highscore';
   const maxPlayers = tournament.max_players ? `${tournament.max_players} Spieler` : 'Offene Teilnehmerzahl';
   const deadline = tournament.play_until
-    ? `Deadline: ${new Date(tournament.play_until as string).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}`
+    ? `\n⏰ Deadline: ${new Date(tournament.play_until).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}`
     : '';
-  const description = tournament.description ? `\n${tournament.description}` : '';
+  const description = tournament.description ? `\n📝 ${tournament.description}` : '';
   const inviteCode = tournament.invite_code || '';
   const link = inviteCode ? `https://www.satoshiduell.com/t/${inviteCode}` : 'https://www.satoshiduell.com';
 
-  const prizes = [];
-  if ((tournament as any)._prizes?.length > 0) {
-    for (const p of (tournament as any)._prizes) {
-      prizes.push(`  ${p.place === 1 ? '🏆' : p.place === 2 ? '🥈' : '🥉'} ${p.title}`);
-    }
+  let prizeText = '';
+  if (prizes.length > 0) {
+    const prizeLines = prizes.map(p =>
+      `  ${p.place === 1 ? '🏆' : p.place === 2 ? '🥈' : '🥉'} ${p.title}`
+    );
+    prizeText = `\n\n🎁 Preise:\n${prizeLines.join('\n')}`;
   }
 
-  let post = `🏆 Neues Turnier: ${name}\n`;
-  post += `📋 Format: ${format} | ${maxPlayers}\n`;
-  if (deadline) post += `⏰ ${deadline}\n`;
-  if (description) post += `${description}\n`;
-  if (prizes.length > 0) post += `\n🎁 Preise:\n${prizes.join('\n')}\n`;
-  post += `\n👉 Jetzt registrieren: ${link}`;
-  post += `\n\n#SatoshiDuell #Bitcoin #Lightning`;
-
-  return post;
+  return `🏆 Neues Turnier: ${name}\n📋 ${format} | ${maxPlayers}${deadline}${description}${prizeText}\n\n👉 Jetzt registrieren: ${link}\n\n#SatoshiDuell #Bitcoin #Lightning`;
 }
 
-function buildTournamentStartedPost(tournament: Record<string, unknown>): string {
+function buildStartedPost(tournament: any): string {
   const name = tournament.name || 'Unbekannt';
-  const count = (tournament.participants as string[])?.length || 0;
-  const format = tournament.format === 'bracket' ? 'Bracket' : 'Highscore';
-  const status = (tournament as any).status === 'qualifying' ? 'Qualifikationsrunde' : format;
+  const count = (tournament.participants || []).length;
+  const isQualifying = tournament.status === 'qualifying';
 
-  let post = `⚔️ ${name} — ${status} gestartet!\n`;
-  post += `👥 ${count} Spieler treten an\n`;
-  post += `\n🔥 Möge der Beste gewinnen!`;
-  post += `\n\n#SatoshiDuell #Bitcoin #Lightning`;
+  if (isQualifying) {
+    return `⚔️ ${name} — Qualifikationsrunde gestartet!\n👥 ${count} Spieler kämpfen um die Bracket-Plätze\n🎯 Top ${tournament.qualifying_target || '?'} kommen weiter\n\n🔥 Spielt euer Quiz!\n\n#SatoshiDuell #Bitcoin #Lightning`;
+  }
 
-  return post;
+  return `⚔️ ${name} — Turnier gestartet!\n👥 ${count} Spieler treten an\n\n🔥 Möge der Beste gewinnen!\n\n#SatoshiDuell #Bitcoin #Lightning`;
 }
 
-function buildTournamentFinishedPost(tournament: Record<string, unknown>): string {
+function buildQualifyingEndedPost(tournament: any): string {
+  const name = tournament.name || 'Unbekannt';
+  const count = (tournament.participants || []).length;
+
+  return `🎯 ${name} — Qualifikation beendet!\n✅ ${count} Spieler haben sich für das Bracket qualifiziert\n⚔️ Die K.O.-Runde beginnt jetzt!\n\n#SatoshiDuell #Bitcoin #Lightning`;
+}
+
+function buildRoundStartedPost(tournament: any, matchPlayers: string[]): string {
+  const name = tournament.name || 'Unbekannt';
+  const matchCount = Math.floor(matchPlayers.length / 2);
+
+  return `🔔 ${name} — Nächste Runde!\n⚔️ ${matchCount} ${matchCount === 1 ? 'Match steht' : 'Matches stehen'} an\n\n⏰ Spielt eure Matches!\n\n#SatoshiDuell #Bitcoin #Lightning`;
+}
+
+function buildFinishedPost(tournament: any): string {
   const name = tournament.name || 'Unbekannt';
   const winner = tournament.winner || 'Unbekannt';
 
-  let post = `🎉 ${name} — Turnier beendet!\n\n`;
-  post += `👑 Gewinner: ${winner}\n`;
-  post += `\nGlückwunsch! ⚡🏆`;
-  post += `\n\n#SatoshiDuell #Bitcoin #Lightning`;
-
-  return post;
+  return `🎉 ${name} — Turnier beendet!\n\n👑 Gewinner: ${winner}\n\nGlückwunsch! ⚡🏆\n\n#SatoshiDuell #Bitcoin #Lightning`;
 }
 
 // ── Main Handler ──
@@ -203,7 +245,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, tournamentId } = body;
+    const { action, tournamentId, matchPlayers } = body;
 
     if (!action || !tournamentId) {
       return jsonResponse({ ok: false, error: 'action und tournamentId erforderlich' }, 400);
@@ -220,35 +262,35 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'Turnier nicht gefunden' }, 404);
     }
 
-    // Nostr-Announce deaktiviert?
     if (!tournament.nostr_announce) {
       return jsonResponse({ ok: true, skipped: true, message: 'Nostr-Announce deaktiviert' });
     }
 
-    // Preise laden für Created-Post
-    let prizes: any[] = [];
-    if (action === 'tournament_created') {
-      const { data: prizeData } = await supabase
-        .from('tournament_prizes')
-        .select('title, place')
-        .eq('tournament_id', tournamentId)
-        .order('place');
-      prizes = prizeData || [];
-    }
-
     // Post-Text bauen
     let content = '';
-    const tournamentWithPrizes = { ...tournament, _prizes: prizes };
+    const participants = tournament.participants || [];
 
     switch (action) {
-      case 'tournament_created':
-        content = buildTournamentCreatedPost(tournamentWithPrizes);
+      case 'tournament_created': {
+        const { data: prizes } = await supabase
+          .from('tournament_prizes')
+          .select('title, place')
+          .eq('tournament_id', tournamentId)
+          .order('place');
+        content = buildCreatedPost(tournament, prizes || []);
         break;
+      }
       case 'tournament_started':
-        content = buildTournamentStartedPost(tournament);
+        content = buildStartedPost(tournament);
+        break;
+      case 'qualifying_ended':
+        content = buildQualifyingEndedPost(tournament);
+        break;
+      case 'round_started':
+        content = buildRoundStartedPost(tournament, matchPlayers || []);
         break;
       case 'tournament_finished':
-        content = buildTournamentFinishedPost(tournament);
+        content = buildFinishedPost(tournament);
         break;
       default:
         return jsonResponse({ ok: false, error: `Unbekannte Aktion: ${action}` }, 400);
@@ -256,20 +298,33 @@ Deno.serve(async (req) => {
 
     // Nostr Event bauen
     const privateKeyBytes = nsecToHex(SATOSHIDUELL_NSEC);
-    const pubkeyHex = getPublicKey(privateKeyBytes);
 
-    // Tags: Creator taggen wenn npub hinterlegt
+    // Tags sammeln
     const tags: string[][] = [];
+
+    // Creator taggen wenn Opt-in
     if (tournament.creator_announce_npub) {
-      try {
-        const creatorPubkeyHex = npubToHex(tournament.creator_announce_npub);
-        tags.push(['p', creatorPubkeyHex]);
-      } catch (e) {
-        console.error('Invalid creator npub:', e);
+      const creatorHex = npubToHex(tournament.creator_announce_npub);
+      if (creatorHex) tags.push(['p', creatorHex]);
+    }
+
+    // Teilnehmer-npubs taggen (bei allen Actions außer created)
+    if (action !== 'tournament_created') {
+      // Bei round_started nur die betroffenen Spieler taggen
+      const playersToTag = (action === 'round_started' && matchPlayers?.length > 0)
+        ? matchPlayers
+        : participants;
+
+      const participantNpubs = await collectParticipantNpubs(tournamentId, playersToTag);
+      for (const hex of participantNpubs) {
+        // Doppelte vermeiden (Creator könnte auch Teilnehmer sein)
+        if (!tags.some(t => t[0] === 'p' && t[1] === hex)) {
+          tags.push(['p', hex]);
+        }
       }
     }
 
-    // Hashtags als t-Tags
+    // Hashtags
     tags.push(['t', 'SatoshiDuell']);
     tags.push(['t', 'Bitcoin']);
     tags.push(['t', 'Lightning']);
@@ -289,14 +344,13 @@ Deno.serve(async (req) => {
     );
 
     const successful = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
-    const failed = results.length - successful;
 
     return jsonResponse({
       ok: true,
       eventId: (signedEvent as any).id,
       published: successful,
-      failed,
       relays: RELAYS.length,
+      tagged: tags.filter(t => t[0] === 'p').length,
     });
 
   } catch (err) {
