@@ -53,6 +53,10 @@ const HistoryView = ({ onBack, onSelectGame }) => {
     loadData();
     }, [userName]);
 
+  // --- HELPER: Normalisierung für case-insensitive Vergleiche ---
+  const normalize = (str) => (str || "").toLowerCase().trim();
+  const normalizedUser = normalize(userName);
+
   // --- FILTER LOGIK ---
   const filteredGames = games.filter(g => {
       if (g.status !== 'finished' && g.status !== 'refunded') return false;
@@ -60,13 +64,13 @@ const HistoryView = ({ onBack, onSelectGame }) => {
       
             if (g.mode === 'arena') {
                 if (g.status === 'refunded') return filter === 'refund';
-                const winner = g.winner;
-                if (filter === 'win') return winner && winner === userName;
-                if (filter === 'lose') return winner && winner !== userName;
+                const winner = normalize(g.winner);
+                if (filter === 'win') return winner && winner === normalizedUser;
+                if (filter === 'lose') return winner && winner !== normalizedUser;
                 return false;
             }
 
-    const isCreator = g.creator === userName;
+    const isCreator = normalize(g.creator) === normalizedUser;
       const myScore = isCreator ? g.creator_score : g.challenger_score;
       const opScore = isCreator ? g.challenger_score : g.creator_score;
       
@@ -82,7 +86,7 @@ const HistoryView = ({ onBack, onSelectGame }) => {
   });
 
   const getGameDetails = (game) => {
-        const isCreator = game.creator === userName;
+        const isCreator = normalize(game.creator) === normalizedUser;
         const opponentName = isCreator ? (game.challenger || t('history_opponent_unknown')) : game.creator;
       const myScore = isCreator ? game.creator_score : game.challenger_score;
       const opScore = isCreator ? game.challenger_score : game.creator_score;
@@ -100,8 +104,8 @@ const HistoryView = ({ onBack, onSelectGame }) => {
                                 scoreText: t('history_refund_amount', { amount: game.amount })
                             };
                         }
-                    const winner = game.winner;
-                    const iWon = winner && winner === userName;
+                    const winner = normalize(game.winner);
+                    const iWon = winner && winner === normalizedUser;
                     return iWon
                         ? { status: 'win', icon: <Trophy size={20} className="text-yellow-400"/>, title: t('history_arena_win_title'), colorClass: 'bg-yellow-900/10 border-yellow-500/30', textClass: 'text-yellow-400', scoreText: t('arena_history_win') }
                         : { status: 'lose', icon: <Frown size={20} className="text-neutral-600"/>, title: t('history_arena_lose_title'), colorClass: 'bg-neutral-900/50 border-neutral-800', textClass: 'text-neutral-600', scoreText: t('arena_history_lose') };
