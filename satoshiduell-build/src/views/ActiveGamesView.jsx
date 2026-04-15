@@ -368,7 +368,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                    {refundedGames.map(game => (
                        <button key={game.id} onClick={() => onSelectGame(game)} className="w-full bg-red-900/10 border border-red-500/30 p-3 rounded-xl flex justify-between items-center mb-2 hover:bg-red-900/20 transition-colors">
                            <span className="text-red-500 text-xs font-bold uppercase flex items-center gap-2">
-                           <RefreshCcw size={12} className="animate-spin-slow"/> {t('active_refund_item', { id: game.id.slice(0, 4) })}
+                           <RefreshCcw size={12} className="animate-spin-slow"/> {t('active_refund_item', { id: String(game.id).slice(0, 4) })}
                            </span>
                            <span className="text-red-400 text-xs font-mono font-bold">{game.amount} sats {'->'}</span>
                        </button>
