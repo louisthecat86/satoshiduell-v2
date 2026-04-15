@@ -446,9 +446,22 @@ export const submitGameResult = async (gameId, role, score, time) => {
 
   if (game.creator_score !== null && game.challenger_score !== null) {
       console.log("🏁 Spiel beendet.");
+      // Winner bestimmen: Score > Zeit-Tiebreaker
+      let winner = null;
+      if (game.creator_score > game.challenger_score) {
+        winner = game.creator;
+      } else if (game.challenger_score > game.creator_score) {
+        winner = game.challenger;
+      } else if (game.creator_time < game.challenger_time) {
+        winner = game.creator;
+      } else if (game.challenger_time < game.creator_time) {
+        winner = game.challenger;
+      }
+      const finishData = { status: 'finished' };
+      if (winner) finishData.winner = winner;
       const { data: finishedGame, error: finishError } = await supabase
         .from('duels')
-        .update({ status: 'finished' })
+        .update(finishData)
         .eq('id', gameId)
         .select()
         .single();
