@@ -218,6 +218,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                <div className="space-y-3">
                  {myTurnGames.map(game => {
                    const isChallengeForMe = normalize(game.target_player) === normalize(user.name);
+                   const needsPayment = isChallengeForMe && !game.challenger;
                    const isCreator = normalize(game.creator) === normalize(user.name);
                    const opponent = isChallengeForMe ? game.creator : (isCreator ? (game.challenger || 'Gegner') : game.creator);
                    const opponentAvatar = isChallengeForMe ? game.creatorAvatar : (isCreator ? game.challengerAvatar : game.creatorAvatar);
@@ -254,7 +255,7 @@ const ActiveGamesView = ({ onBack, onSelectGame, onRefund }) => {
                              {game.amount} Sats
                            </span>
                            <span className="text-[10px] text-white/60 mt-1 uppercase tracking-wider group-hover:translate-x-1 transition-transform flex items-center gap-1">
-                              {isChallengeForMe ? t('active_accept_action') : t('active_start_quiz_action')}
+                              {needsPayment ? `⚡ ${t('active_accept_action')}` : (isChallengeForMe ? t('active_accept_action') : t('active_start_quiz_action'))}
                            </span>
                         </div>
                      </button>

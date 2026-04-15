@@ -588,6 +588,18 @@ const handleTournamentGameEnd = async (result) => {
                  const refundLinks = game.refund_links || {};
                  const hasArenaRefund = game.mode === 'arena' && Boolean(refundLinks[userKey]);
 
+                 // FIX: Target-Player muss erst bezahlen bevor er spielen darf!
+                 // Wenn ich nicht der Creator bin UND kein Challenger gesetzt ist → Payment Flow
+                 const isTargetNotJoined = !isCreator && !game.challenger && game.target_player && normalize(game.target_player) === normalize(userName);
+                 
+                 if (isTargetNotJoined) {
+                   console.log(`🔒 Target-Player ${userName} muss erst bezahlen für Spiel ${game.id}`);
+                   setIsJoining(true);
+                   setCreationAmount(game.amount);
+                   navigate('payment');
+                   return;
+                 }
+
                  if (game.status === 'refunded' || hasArenaRefund) {
                    navigate('result');
                } else if (myScore === null && game.status !== 'finished') {
