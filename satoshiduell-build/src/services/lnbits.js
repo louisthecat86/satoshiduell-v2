@@ -92,3 +92,32 @@ export const getWithdrawLinkStatus = async (linkId) => {
     return false;
   }
 };
+
+// 5. DETAILLIERTE ZAHLUNGSINFO (ADMIN)
+export const getPaymentDetails = async (paymentHash) => {
+  if (!paymentHash) return null;
+  try {
+    const response = await fetch(`${LNBITS_URL}/api/v1/payments/${paymentHash}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': INVOICE_KEY },
+    });
+    if (!response.ok) return { error: `HTTP ${response.status}`, paid: false };
+    const data = await response.json();
+    return {
+      paid: Boolean(data.paid),
+      pending: Boolean(data.pending),
+      amount: data.amount,
+      fee: data.fee,
+      memo: data.memo,
+      bolt11: data.bolt11,
+      payment_hash: data.payment_hash,
+      preimage: data.preimage,
+      time: data.time,
+      expiry: data.expiry,
+      extra: data.extra,
+      wallet_id: data.wallet_id,
+    };
+  } catch (error) {
+    return { error: error.message, paid: false };
+  }
+};

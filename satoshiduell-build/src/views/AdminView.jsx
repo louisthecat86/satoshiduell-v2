@@ -14,6 +14,7 @@ import {
 } from '../services/supabase';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
+import GameDetailModal from '../components/admin/GameDetailModal';
 
 // ==========================================
 // 1. HELPER: STATUS BADGES & FORMATTING
@@ -177,6 +178,9 @@ const AdminView = ({ onBack }) => {
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, type } for confirmation dialog
   const [replaceConfirm, setReplaceConfirm] = useState(null); // Stores file for replace confirmation
   
+  // Game Detail State
+  const [selectedGame, setSelectedGame] = useState(null);
+
   // Editor / Import States
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorQuestion, setEditorQuestion] = useState(null);
@@ -664,30 +668,66 @@ const AdminView = ({ onBack }) => {
                                     <th className="p-4">Status</th>
                                     <th className="p-4">Spieler</th>
                                     <th className="p-4 hidden md:table-cell">Pot</th>
+                                    <th className="p-4 hidden md:table-cell">Score</th>
+                                    <th className="p-4 hidden md:table-cell">Payout</th>
                                     <th className="p-4 hidden md:table-cell">Datum</th>
                                     <th className="p-4 text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/5">
-                                {loading ? <tr><td colSpan="5" className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/></td></tr> :
-                                 filteredGames.map(g => (
-                                    <tr key={g.id} className="hover:bg-white/5 transition-colors">
-                                        <td className="p-4"><StatusBadge status={g.status}/></td>
+                                {loading ? <tr><td colSpan="7" className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/></td></tr> :
+                                 filteredGames.map(g => {
+                                    const isArena = g.mode === 'arena';
+                                    const hasPaymentIssue = g.status === 'pending_payment' || (g.status === 'finished' && !g.is_claimed);
+                                    return (
+                                    <tr key={g.id} onClick={() => setSelectedGame(g)} className="hover:bg-white/5 transition-colors cursor-pointer">
+                                        <td className="p-4">
+                                            <div className="flex flex-col gap-1">
+                                                <StatusBadge status={g.status}/>
+                                                {isArena && <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 font-bold w-fit">ARENA</span>}
+                                                {hasPaymentIssue && <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 font-bold w-fit">⚡</span>}
+                                            </div>
+                                        </td>
                                         <td className="p-4">
                                             <div className="flex flex-col">
                                                 <span className="text-white font-bold flex items-center gap-2">
-                                                    {g.creator} <span className="text-[10px] text-neutral-600">vs</span> {g.challenger || '?'}
+                                                    {g.creator} <span className="text-[10px] text-neutral-600">vs</span> {isArena ? `${(g.participants || []).length} Spieler` : (g.challenger || '?')}
                                                 </span>
                                                 <span className="text-[10px] font-mono opacity-50">{String(g.id || '').slice(0,8)}...</span>
+                                                {g.winner && <span className="text-[10px] text-green-400 font-bold">🏆 {g.winner}</span>}
                                             </div>
                                         </td>
-                                        <td className="p-4 hidden md:table-cell"><span className="text-yellow-500 font-bold">{g.amount * 2} Sats</span></td>
+                                        <td className="p-4 hidden md:table-cell">
+                                            <span className="text-yellow-500 font-bold">{g.amount * (isArena ? (g.participants?.length || 1) : 2)} Sats</span>
+                                            <div className="text-[10px] text-neutral-600">{g.amount} × {isArena ? (g.participants?.length || 1) : 2}</div>
+                                        </td>
+                                        <td className="p-4 hidden md:table-cell">
+                                            {!isArena ? (
+                                                <div className="flex flex-col text-xs">
+                                                    <span className={g.creator_score !== null ? 'text-white' : 'text-neutral-600'}>{g.creator_score ?? '-'} : {g.challenger_score ?? '-'}</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-[10px] text-neutral-500">{Object.keys(g.participant_scores || {}).length}/{(g.participants || []).length}</span>
+                                            )}
+                                        </td>
+                                        <td className="p-4 hidden md:table-cell">
+                                            {g.is_claimed ? (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-bold">✅</span>
+                                            ) : g.withdraw_link ? (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-bold">⏳</span>
+                                            ) : g.status === 'finished' ? (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-bold">❌</span>
+                                            ) : (
+                                                <span className="text-neutral-600">-</span>
+                                            )}
+                                        </td>
                                         <td className="p-4 hidden md:table-cell text-xs">{formatDate(g.created_at)}</td>
                                         <td className="p-4 text-right">
-                                            <button onClick={() => handleDeleteGame(g.id)} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={16}/></button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteGame(g.id); }} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={16}/></button>
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -832,6 +872,11 @@ const AdminView = ({ onBack }) => {
             )}
 
         </div>
+
+        {/* GAME DETAIL MODAL */}
+        {selectedGame && (
+          <GameDetailModal game={selectedGame} onClose={() => setSelectedGame(null)} />
+        )}
 
         {/* EDITOR OVERLAY */}
         <QuestionEditorInternal 
