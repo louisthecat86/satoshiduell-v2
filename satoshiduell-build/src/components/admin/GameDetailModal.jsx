@@ -413,10 +413,184 @@ const GameDetailModal = ({ game, onClose }) => {
             </div>
           )}
 
+          {/* DIAGNOSE */}
+          <DiagnoseSection game={game} />
+
           {/* RAW JSON (collapsible for debugging) */}
           <RawDataSection game={game} />
         </div>
       </div>
+    </div>
+  );
+};
+
+// ==========================================
+// DIAGNOSE SECTION
+// ==========================================
+const DiagnoseSection = ({ game }) => {
+  const issues = [];
+  const infos = [];
+  const isArena = game.mode === 'arena';
+  const createdAt = game.created_at ? new Date(game.created_at) : null;
+  const ageHours = createdAt ? (Date.now() - createdAt.getTime()) / (1000 * 60 * 60) : 0;
+  const ageDays = Math.floor(ageHours / 24);
+
+  // --- PENDING PAYMENT ---
+  if (game.status === 'pending_payment') {
+    if (!game.creator_paid_at && !isArena) {
+      issues.push({ severity: 'error', text: 'Creator hat nie bezahlt. Invoice ist vermutlich abgelaufen (10 Min Timeout).' });
+    }
+    if (ageHours > 1) {
+      issues.push({ severity: 'warn', text: `Spiel hängt seit ${ageDays > 0 ? ageDays + ' Tagen' : Math.floor(ageHours) + ' Stunden'} in "Zahlung ausstehend". Sollte gelöscht werden.` });
+    }
+  }
+
+  // --- OPEN (waiting for opponent) ---
+  if (game.status === 'open') {
+    if (!isArena && !game.challenger) {
+      issues.push({ severity: 'warn', text: 'Kein Gegner beigetreten. Creator hat bezahlt aber wartet auf einen Mitspieler.' });
+      if (ageHours > 24) {
+        issues.push({ severity: 'error', text: `Spiel wartet seit ${ageDays} Tagen auf Gegner. Creator-Sats (${game.amount}) sind eingezahlt aber nicht erstattet. Refund notwendig!` });
+      }
+    }
+    if (!isArena && game.creator_paid_at && !game.creator_payment_hash) {
+      issues.push({ severity: 'info', text: 'Creator als bezahlt markiert, aber kein Payment-Hash gespeichert (alte Version?).' });
+    }
+    if (isArena) {
+      const participants = Array.isArray(game.participants) ? game.participants : [];
+      const maxPlayers = game.max_players || 0;
+      if (maxPlayers > 0 && participants.length < maxPlayers) {
+        infos.push(`Arena wartet auf Spieler: ${participants.length}/${maxPlayers} beigetreten.`);
+      }
+    }
+  }
+
+  // --- ACTIVE (game running) ---
+  if (game.status === 'active') {
+    if (!isArena) {
+      if (game.creator_score === null && game.challenger_score === null && ageHours > 1) {
+        issues.push({ severity: 'warn', text: 'Beide Spieler haben noch nicht gespielt, obwohl das Match aktiv ist.' });
+      } else if (game.creator_score !== null && game.challenger_score === null) {
+        issues.push({ severity: 'info', text: `Creator (${game.creator}) hat gespielt (Score: ${game.creator_score}), aber Challenger (${game.challenger}) noch nicht.` });
+        if (ageHours > 24) {
+          issues.push({ severity: 'warn', text: `Challenger antwortet seit ${ageDays} Tagen nicht. Spiel hängt.` });
+        }
+      } else if (game.challenger_score !== null && game.creator_score === null) {
+        issues.push({ severity: 'info', text: `Challenger (${game.challenger}) hat gespielt, aber Creator (${game.creator}) noch nicht.` });
+      }
+    }
+  }
+
+  // --- FINISHED ---
+  if (game.status === 'finished') {
+    // Challenger name missing but score exists
+    if (!isArena && !game.challenger && game.challenger_score !== null) {
+      issues.push({ severity: 'error', text: `Challenger-Name fehlt im Datenbankfeld, obwohl ein Challenger-Score (${game.challenger_score}) und Zeit (${formatMs(game.challenger_time)}) vorhanden sind.${game.target_player ? ` Ziel-Spieler war "${game.target_player}" — Name wurde beim Beitritt vermutlich nicht in das "challenger"-Feld geschrieben.` : ''} Dadurch konnte kein Gewinner ermittelt und kein Auszahlungslink erstellt werden.` });
+    }
+    // Challenger name missing, no score either
+    if (!isArena && !game.challenger && game.challenger_score === null) {
+      issues.push({ severity: 'error', text: 'Spiel als "finished" markiert, aber kein Challenger vorhanden. Kein Gegner ist je beigetreten — Status sollte nicht "finished" sein.' });
+    }
+    // Winner but no withdraw link
+    if (game.winner && !game.withdraw_link && !game.withdraw_id) {
+      issues.push({ severity: 'error', text: `Gewinner "${game.winner}" hat keinen Auszahlungslink erhalten! Withdraw-Link wurde nie erstellt. Mögliche Ursache: Edge Function Fehler, Netzwerkproblem, oder LNbits war nicht erreichbar.` });
+    }
+    // Scores exist but no winner AND challenger exists
+    if (!game.winner && !isArena && game.challenger) {
+      if (game.creator_score !== null && game.challenger_score !== null) {
+        const expectedWinner = game.creator_score > game.challenger_score ? game.creator :
+          game.challenger_score > game.creator_score ? game.challenger :
+          game.creator_time < game.challenger_time ? game.creator :
+          game.challenger_time < game.creator_time ? game.challenger : null;
+        issues.push({ severity: 'error', text: `Beide Scores vorhanden (${game.creator_score}:${game.challenger_score}), aber kein Gewinner gesetzt.${expectedWinner ? ` "${expectedWinner}" hätte gewinnen müssen.` : ' Exaktes Unentschieden (gleicher Score + gleiche Zeit).'} Möglicher Bug im Auswertungsablauf oder Netzwerkfehler beim Speichern.` });
+      } else if (game.creator_score === null || game.challenger_score === null) {
+        issues.push({ severity: 'error', text: 'Spiel als "finished" markiert, aber nicht alle Scores vorhanden. Inkonsistenter Status.' });
+      }
+    }
+    // No winner, no challenger (covered above already for missing challenger name)
+    if (!game.winner && !isArena && !game.challenger && game.challenger_score !== null) {
+      // Already covered by the challenger name missing check, add remedy hint
+      issues.push({ severity: 'info', text: `Lösung: Manuell in der Datenbank das "challenger"-Feld setzen (vermutlich "${game.target_player || '?'}"), dann "winner"-Feld setzen und Withdraw-Link manuell erstellen.` });
+    }
+    // Withdraw link but not claimed
+    if (game.withdraw_link && !game.is_claimed) {
+      issues.push({ severity: 'warn', text: `Auszahlungslink existiert, wurde aber noch nicht abgeholt. Spieler hat den QR-Code möglicherweise nicht gescannt oder die Wallet hat den Withdraw abgelehnt.` });
+      if (ageHours > 48) {
+        issues.push({ severity: 'error', text: `Auszahlung seit ${ageDays} Tagen nicht abgeholt! Link könnte abgelaufen sein.` });
+      }
+    }
+    // Payment mismatch
+    if (!isArena && game.creator_paid_at && !game.challenger_paid_at) {
+      issues.push({ severity: 'warn', text: 'Nur Creator hat bezahlt, aber Spiel steht auf "finished". Challenger-Zahlung fehlt — Dateninkonsistenz.' });
+    }
+    // Everything OK
+    if (game.winner && game.is_claimed) {
+      infos.push(`Alles OK: ${game.winner} hat ${game.payout_amount || game.amount * 2} Sats erhalten.`);
+    }
+  }
+
+  // --- CANCELLED ---
+  if (game.status === 'cancelled') {
+    if (game.creator_paid_at) {
+      const refundClaimed = game.refund_claimed || {};
+      const creatorRefunded = refundClaimed[game.creator];
+      if (!creatorRefunded) {
+        issues.push({ severity: 'error', text: `Creator "${game.creator}" hat ${game.amount} Sats bezahlt, aber Spiel wurde abgebrochen und Refund ist NICHT abgeholt.` });
+      } else {
+        infos.push(`Creator-Refund abgeholt.`);
+      }
+    }
+    if (game.challenger_paid_at && game.challenger) {
+      const refundClaimed = game.refund_claimed || {};
+      const challengerRefunded = refundClaimed[game.challenger];
+      if (!challengerRefunded) {
+        issues.push({ severity: 'error', text: `Challenger "${game.challenger}" hat ${game.amount} Sats bezahlt, aber Refund ist NICHT abgeholt.` });
+      }
+    }
+  }
+
+  // No issues at all
+  if (issues.length === 0 && infos.length === 0) return null;
+
+  const errorCount = issues.filter(i => i.severity === 'error').length;
+  const warnCount = issues.filter(i => i.severity === 'warn').length;
+
+  return (
+    <div className={`rounded-xl p-3 space-y-2 border ${errorCount > 0 ? 'bg-red-500/5 border-red-500/20' : warnCount > 0 ? 'bg-yellow-500/5 border-yellow-500/20' : 'bg-green-500/5 border-green-500/20'}`}>
+      <div className="flex items-center gap-2 mb-1">
+        {errorCount > 0 ? (
+          <AlertTriangle size={14} className="text-red-400" />
+        ) : warnCount > 0 ? (
+          <AlertTriangle size={14} className="text-yellow-400" />
+        ) : (
+          <Check size={14} className="text-green-400" />
+        )}
+        <span className="text-xs font-bold text-white uppercase">
+          Diagnose
+          {errorCount > 0 && <span className="text-red-400 ml-2">({errorCount} Fehler)</span>}
+          {warnCount > 0 && <span className="text-yellow-400 ml-2">({warnCount} Warnung{warnCount > 1 ? 'en' : ''})</span>}
+        </span>
+      </div>
+
+      {issues.map((issue, idx) => (
+        <div key={idx} className={`flex items-start gap-2 text-[11px] p-2 rounded-lg ${
+          issue.severity === 'error' ? 'bg-red-500/10 text-red-300 border border-red-500/20' :
+          issue.severity === 'warn' ? 'bg-yellow-500/10 text-yellow-300 border border-yellow-500/20' :
+          'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+        }`}>
+          <span className="shrink-0 mt-0.5">
+            {issue.severity === 'error' ? '🔴' : issue.severity === 'warn' ? '🟡' : 'ℹ️'}
+          </span>
+          <span>{issue.text}</span>
+        </div>
+      ))}
+
+      {infos.map((info, idx) => (
+        <div key={`info-${idx}`} className="flex items-start gap-2 text-[11px] p-2 rounded-lg bg-green-500/10 text-green-300 border border-green-500/20">
+          <span className="shrink-0 mt-0.5">✅</span>
+          <span>{info}</span>
+        </div>
+      ))}
     </div>
   );
 };
