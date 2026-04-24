@@ -84,6 +84,7 @@ export const TRANSLATIONS = {
     dashboard_info_mode_tournament_title: "Turniermodus",
     dashboard_info_mode_tournament_body: "Hier koennen Sponsoren oder Veranstalter eigene Turniere einstellen. Die jeweiligen Regeln, Teilnahmebedingungen und Preise findest du direkt im jeweiligen Turnier.",
     dashboard_info_footer: "Kurz gesagt: Du zahlst zuerst den Einsatz, beantwortest 5 Fragen und trittst mit deinem Ergebnis gegen andere Spieler an.",
+    dashboard_info_continue: "Weiter zum Spiel",
 
    // --- SETTINGS ---
     settings_general: "Allgemein",
@@ -641,6 +642,7 @@ export const TRANSLATIONS = {
     dashboard_info_mode_tournament_title: "Tournament Mode",
     dashboard_info_mode_tournament_body: "Sponsors or organizers can create their own tournaments here. The specific rules, participation details, and prizes are shown inside each tournament.",
     dashboard_info_footer: "In short: you pay the stake first, answer 5 questions, and compete against other players with your result.",
+    dashboard_info_continue: "Continue to game",
 
     // --- SETTINGS ---
     settings_general: "General",
@@ -1197,6 +1199,7 @@ export const TRANSLATIONS = {
     dashboard_info_mode_tournament_title: "Modo torneo",
     dashboard_info_mode_tournament_body: "Aqui los patrocinadores u organizadores pueden crear sus propios torneos. Las reglas, condiciones de participacion y premios se muestran dentro de cada torneo.",
     dashboard_info_footer: "En resumen: primero pagas la apuesta, luego respondes 5 preguntas y compites con tu resultado contra otros jugadores.",
+    dashboard_info_continue: "Continuar al juego",
 
     // --- SETTINGS ---
     settings_general: "General",

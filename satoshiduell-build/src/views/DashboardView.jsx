@@ -42,6 +42,7 @@ const DashboardView = ({
   const [incomingChallenges, setIncomingChallenges] = useState([]); 
   const [showNewGameMenu, setShowNewGameMenu] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [infoModalFromNewGame, setInfoModalFromNewGame] = useState(false);
   const [tournamentWinCount, setTournamentWinCount] = useState(0);
   const [hasOpenTournaments, setHasOpenTournaments] = useState(false);
   const [tournamentActionCount, setTournamentActionCount] = useState(0);
@@ -326,6 +327,10 @@ const DashboardView = ({
           </div>
           
           <div className="flex gap-1">
+              <button onClick={() => { setInfoModalFromNewGame(false); setShowInfoModal(true); }} className="p-2 bg-white/5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors" aria-label={t('dashboard_info_button')}>
+                  <Info size={18}/>
+              </button>
+
               <button onClick={onOpenSettings} className="p-2 bg-white/5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors">
                   <Settings size={18}/>
               </button>
@@ -340,7 +345,7 @@ const DashboardView = ({
         <div className="grid grid-cols-2 gap-3 mb-4">
           
           <button 
-            onClick={() => setShowNewGameMenu(true)} 
+            onClick={() => { setInfoModalFromNewGame(true); setShowInfoModal(true); }} 
             className="col-span-1 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white rounded-2xl p-4 flex flex-col items-center justify-center shadow-lg shadow-orange-900/20 active:scale-95 transition-all h-32 relative group overflow-hidden"
           >
             <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
@@ -394,31 +399,6 @@ const DashboardView = ({
               <span className="text-xs font-black uppercase text-yellow-500 tracking-widest">{t('tile_badges')}</span>
            </button>
         </div>
-
-        <button
-          onClick={() => setShowInfoModal(true)}
-          className="relative mb-6 overflow-hidden rounded-2xl border border-white/8 bg-[#151515] px-4 py-3 text-left transition-all hover:bg-[#1a1a1a] hover:border-orange-500/15"
-        >
-          <div className="absolute inset-y-0 left-0 w-20 bg-[radial-gradient(circle_at_left,_rgba(249,115,22,0.18),_transparent_70%)]" />
-          <div className="relative flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-orange-500/15 bg-orange-500/10 text-orange-300">
-                <Info size={16} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase tracking-[0.26em] text-orange-300">
-                  {t('dashboard_info_badge')}
-                </div>
-                <div className="mt-1 truncate text-sm font-black uppercase tracking-[0.14em] text-white">
-                  {t('dashboard_info_title')}
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-300">
-              {t('dashboard_info_button')}
-            </div>
-          </div>
-        </button>
 
       </div>
 
@@ -535,6 +515,15 @@ const DashboardView = ({
                   {t('dashboard_info_footer')}
                 </p>
               </section>
+
+              {infoModalFromNewGame && (
+                <button
+                  onClick={() => { setShowInfoModal(false); setShowNewGameMenu(true); }}
+                  className="w-full rounded-2xl bg-orange-500 hover:bg-orange-400 text-black py-3 text-xs font-black uppercase tracking-[0.22em] transition-all"
+                >
+                  {t('dashboard_info_continue')}
+                </button>
+              )}
             </div>
           </div>
         </div>
