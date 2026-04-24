@@ -1209,9 +1209,7 @@ export const fetchPlayersForTournamentPermission = async () => {
 export const submitSponsorRequest = async ({ username, telegram, email, npub, twitter, message }) => {
   const { data, error } = await supabase
     .from('sponsor_contact_requests')
-    .insert([{ username, telegram, email, npub, twitter, message }])
-    .select()
-    .single();
+    .insert([{ username, telegram, email, npub, twitter, message }]);
   return { data, error };
 };
 

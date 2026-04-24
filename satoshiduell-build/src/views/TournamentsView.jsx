@@ -30,6 +30,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const [sponsorForm, setSponsorForm] = useState({ telegram: '', email: '', npub: '', twitter: '', message: '' });
   const [sponsorSubmitting, setSponsorSubmitting] = useState(false);
   const [sponsorSuccess, setSponsorSuccess] = useState(false);
+  const [sponsorError, setSponsorError] = useState('');
 
   useEffect(() => { if (user?.username) refreshUser(user.username); }, []);
   useEffect(() => { setLocalCanCreate(user?.can_create_tournaments || false); }, [user?.can_create_tournaments]);
@@ -143,6 +144,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const handleSponsorSubmit = async () => {
     const { telegram, email, npub, twitter } = sponsorForm;
     if (!telegram && !email && !npub && !twitter) return;
+    setSponsorError('');
     setSponsorSubmitting(true);
     const { error } = await submitSponsorRequest({
       username: user?.username || 'unbekannt',
@@ -153,7 +155,10 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
       setSponsorModalOpen(false);
       setSponsorForm({ telegram: '', email: '', npub: '', twitter: '', message: '' });
       setSponsorSuccess(true);
+      return;
     }
+
+    setSponsorError(error?.message || 'Anfrage konnte nicht gesendet werden. Bitte versuche es erneut.');
   };
 
   // Bracket nach dem Spielen neu laden
@@ -268,6 +273,12 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                     Du möchtest ein Turnier auf SatoshiDuell sponsern? Hinterlasse hier deine Kontaktdaten — der Admin <span className="text-orange-400 font-bold">Wolpertinger1</span> meldet sich bei dir.
                   </p>
                   <p className="text-neutral-600 text-[11px]">Mindestens eine Kontaktmöglichkeit angeben.</p>
+
+                  {sponsorError && (
+                    <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                      {sponsorError}
+                    </div>
+                  )}
 
                   {[
                     { key: 'telegram', label: 'Telegram-Handle', placeholder: '@meinhandle' },
