@@ -336,26 +336,26 @@ const DashboardView = ({
           </div>
         </div>
 
-        <div className="relative overflow-hidden mb-4 rounded-[28px] border border-sky-400/15 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.24),_transparent_42%),linear-gradient(145deg,_rgba(17,24,39,0.96),_rgba(11,15,22,0.98))] shadow-[0_24px_70px_rgba(2,6,23,0.5)]">
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.08),transparent_35%,rgba(56,189,248,0.1))]" />
+        <div className="relative overflow-hidden mb-4 rounded-[28px] border border-white/8 bg-[radial-gradient(circle_at_top_left,_rgba(249,115,22,0.14),_transparent_34%),linear-gradient(145deg,_rgba(24,24,27,0.98),_rgba(12,12,14,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.35)]">
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(249,115,22,0.06),transparent_30%,rgba(255,255,255,0.03))]" />
           <div className="relative p-4">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-sky-200">
+                <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/15 bg-white/5 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-orange-300">
                   <Info size={12} />
                   {t('dashboard_info_badge')}
                 </div>
                 <h3 className="mt-3 text-white text-lg font-black uppercase tracking-[0.12em] leading-tight">
                   {t('dashboard_info_title')}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-neutral-300">
+                <p className="mt-2 text-sm leading-6 text-neutral-400 max-w-[22rem]">
                   {t('dashboard_info_teaser')}
                 </p>
               </div>
 
               <button
                 onClick={() => setShowInfoModal(true)}
-                className="shrink-0 rounded-2xl border border-white/10 bg-white/5 p-3 text-sky-200 transition-all hover:border-sky-300/30 hover:bg-white/10 hover:text-white"
+                className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-neutral-400 transition-all hover:border-orange-500/20 hover:bg-white/[0.07] hover:text-orange-300"
                 aria-label={t('dashboard_info_button')}
               >
                 <Info size={18} />
@@ -381,7 +381,7 @@ const DashboardView = ({
 
             <button
               onClick={() => setShowInfoModal(true)}
-              className="w-full rounded-2xl bg-white text-[#111] py-3 text-xs font-black uppercase tracking-[0.22em] transition-all hover:bg-sky-100"
+              className="w-full rounded-2xl border border-white/10 bg-white/[0.04] text-neutral-200 py-3 text-xs font-black uppercase tracking-[0.22em] transition-all hover:border-orange-500/20 hover:bg-white/[0.07] hover:text-white"
             >
               {t('dashboard_info_button')}
             </button>
