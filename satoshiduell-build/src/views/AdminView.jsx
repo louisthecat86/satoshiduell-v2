@@ -5,12 +5,13 @@ import { getCryptoPunkAvatar } from '../utils/avatar';
 import { 
   ArrowLeft, Upload, Download, Trash2, Loader2, RefreshCw, 
   Search, FileUp, Globe, X, Save, Check, LayoutDashboard, 
-  Gamepad2, ListChecks, Coins, Trophy, Clock
+  Gamepad2, ListChecks, Coins, Trophy, Clock, MessageSquare, Copy, CheckCheck
 } from 'lucide-react';
 import { 
   fetchQuestions, upsertQuestions, deleteQuestion, deleteAllQuestions,
   fetchAllDuels, deleteDuel, fetchSubmissions, updateSubmissionStatus, deleteSubmission, supabase,
-  updatePlayerCanCreateTournament, fetchPlayersForTournamentPermission
+  updatePlayerCanCreateTournament, fetchPlayersForTournamentPermission,
+  fetchSponsorRequests, markSponsorRequestRead, deleteSponsorRequest
 } from '../services/supabase';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -165,12 +166,14 @@ const AdminView = ({ onBack }) => {
   const [gamesFilter, setGamesFilter] = useState('all'); // 'all' | 'open'
   
   // Data States
-  const [stats, setStats] = useState({ users: 0, games: 0, pending: 0, questions: 0, inbox: 0 });
+  const [stats, setStats] = useState({ users: 0, games: 0, pending: 0, questions: 0, inbox: 0, sponsorRequests: 0 });
   const [questions, setQuestions] = useState([]);
   const [games, setGames] = useState([]);
   const [players, setPlayers] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [tournamentCreators, setTournamentCreators] = useState([]);
+  const [sponsorRequests, setSponsorRequests] = useState([]);
+  const [copiedId, setCopiedId] = useState(null);
   
   // UI States
   const [loading, setLoading] = useState(false);
@@ -198,8 +201,9 @@ const AdminView = ({ onBack }) => {
     const { count: pendingCount } = await supabase.from('duels').select('*', { count: 'exact', head: true }).eq('status', 'open');
       const { count: qCount } = await supabase.from('questions').select('*', { count: 'exact', head: true });
       const { count: inboxCount } = await supabase.from('question_submissions').select('*', { count: 'exact', head: true });
+      const { count: sponsorCount } = await supabase.from('sponsor_contact_requests').select('*', { count: 'exact', head: true }).eq('status', 'new');
      
-      setStats({ users: userCount || 0, games: gameCount || 0, pending: pendingCount || 0, questions: qCount || 0, inbox: inboxCount || 0 });
+      setStats({ users: userCount || 0, games: gameCount || 0, pending: pendingCount || 0, questions: qCount || 0, inbox: inboxCount || 0, sponsorRequests: sponsorCount || 0 });
   };
 
   const loadQuestions = async () => {
@@ -240,6 +244,13 @@ const AdminView = ({ onBack }) => {
     setLoading(false);
   };
 
+  const loadSponsorRequests = async () => {
+    setLoading(true);
+    const { data } = await fetchSponsorRequests();
+    if (data) setSponsorRequests(data);
+    setLoading(false);
+  };
+
   useEffect(() => {
      loadStats();
      if (activeTab === 'questions') loadQuestions();
@@ -247,6 +258,7 @@ const AdminView = ({ onBack }) => {
       if (activeTab === 'players') loadPlayers();
       if (activeTab === 'inbox') loadSubmissions();
       if (activeTab === 'tournaments') loadTournamentCreators();
+      if (activeTab === 'sponsorRequests') loadSponsorRequests();
   }, [activeTab]);
 
   const handleBack = () => {
@@ -647,6 +659,12 @@ const AdminView = ({ onBack }) => {
                       <span className="text-4xl font-black text-white">{tournamentCreators.filter(p => p.can_create_tournaments).length}</span>
                       <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Turniermeister</span>
                     </button>
+                    <button onClick={() => setActiveTab('sponsorRequests')} className="bg-[#111]/60 border border-white/5 p-6 rounded-2xl flex flex-col items-center justify-center gap-2 aspect-[4/3] shadow-xl hover:bg-[#111]/80 transition-colors relative">
+                      <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 mb-2"><MessageSquare size={28}/></div>
+                      <span className="text-4xl font-black text-white">{stats.sponsorRequests}</span>
+                      <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Sponsor-Anfragen</span>
+                      {stats.sponsorRequests > 0 && <span className="absolute top-3 right-3 w-3 h-3 rounded-full bg-orange-500 animate-pulse" />}
+                    </button>
                 </div>
             )}
 
@@ -991,6 +1009,101 @@ const AdminView = ({ onBack }) => {
                     )}
                 </div>
             </div>
+        )}
+
+        {/* VIEW: SPONSOR REQUESTS */}
+        {activeTab === 'sponsorRequests' && (
+          <div className="flex flex-col h-full animate-in fade-in">
+            <div className="shrink-0 mb-4 flex gap-4">
+              <h2 className="flex-1 text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                <MessageSquare size={18} className="text-orange-400" /> Sponsor-Anfragen
+              </h2>
+              <button onClick={() => { loadSponsorRequests(); loadStats(); }} className="p-3 bg-white/5 rounded-xl text-neutral-400 hover:text-white"><RefreshCw size={18}/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
+              {loading ? (
+                <div className="flex items-center justify-center h-full"><Loader2 className="text-orange-500 animate-spin" size={32} /></div>
+              ) : sponsorRequests.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-16">
+                  <MessageSquare size={40} className="text-neutral-700" />
+                  <p className="text-neutral-500 text-sm">Keine Anfragen vorhanden</p>
+                </div>
+              ) : (
+                sponsorRequests.map(req => {
+                  const contacts = [
+                    { label: 'Telegram', value: req.telegram, icon: '📨' },
+                    { label: 'E-Mail',   value: req.email,    icon: '✉️' },
+                    { label: 'npub',     value: req.npub,     icon: '🔑' },
+                    { label: 'Twitter',  value: req.twitter,  icon: '🐦' },
+                  ].filter(c => c.value);
+
+                  const handleCopy = async (text, id) => {
+                    await navigator.clipboard.writeText(text);
+                    setCopiedId(id);
+                    setTimeout(() => setCopiedId(null), 2000);
+                  };
+
+                  const handleRead = async () => {
+                    if (req.status === 'new') {
+                      await markSponsorRequestRead(req.id);
+                      setSponsorRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'read' } : r));
+                      loadStats();
+                    }
+                  };
+
+                  const handleDelete = async () => {
+                    await deleteSponsorRequest(req.id);
+                    setSponsorRequests(prev => prev.filter(r => r.id !== req.id));
+                    loadStats();
+                  };
+
+                  return (
+                    <div key={req.id} onClick={handleRead} className={`bg-black/40 border rounded-2xl p-4 transition-colors ${req.status === 'new' ? 'border-orange-500/40 bg-orange-500/5' : 'border-white/10'}`}>
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-white text-sm">{req.username}</span>
+                            {req.status === 'new' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/30 text-orange-400 border border-orange-500/50">NEU</span>}
+                          </div>
+                          <span className="text-[10px] text-neutral-600">{new Date(req.created_at).toLocaleString('de-DE')}</span>
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); handleDelete(); }} className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 shrink-0">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+
+                      {/* Kontaktdaten mit Kopier-Buttons */}
+                      <div className="space-y-2 mb-3">
+                        {contacts.map(c => (
+                          <div key={c.label} className="flex items-center justify-between bg-white/5 rounded-xl px-3 py-2 gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs">{c.icon}</span>
+                              <span className="text-[10px] text-neutral-500 uppercase font-bold shrink-0">{c.label}</span>
+                              <span className="text-xs text-white font-mono truncate">{c.value}</span>
+                            </div>
+                            <button
+                              onClick={e => { e.stopPropagation(); handleCopy(c.value, `${req.id}-${c.label}`); }}
+                              className="shrink-0 p-1.5 rounded-lg bg-white/5 text-neutral-400 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
+                              title="Kopieren"
+                            >
+                              {copiedId === `${req.id}-${c.label}` ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {req.message && (
+                        <div className="bg-white/5 rounded-xl px-3 py-2">
+                          <p className="text-[10px] text-neutral-500 uppercase font-bold mb-1">Nachricht</p>
+                          <p className="text-xs text-neutral-300">{req.message}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         )}
 
         {/* DELETE CONFIRMATION DIALOG */}

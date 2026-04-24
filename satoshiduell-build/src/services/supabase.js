@@ -1203,6 +1203,46 @@ export const fetchPlayersForTournamentPermission = async () => {
 };
 
 // ============================================================
+// SPONSOR CONTACT REQUESTS
+// ============================================================
+
+export const submitSponsorRequest = async ({ username, telegram, email, npub, twitter, message }) => {
+  const { data, error } = await supabase
+    .from('sponsor_contact_requests')
+    .insert([{ username, telegram, email, npub, twitter, message }])
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const fetchSponsorRequests = async () => {
+  const { data, error } = await supabase
+    .from('sponsor_contact_requests')
+    .select('*')
+    .order('created_at', { ascending: false });
+  return { data, error };
+};
+
+export const markSponsorRequestRead = async (id) => {
+  const { data, error } = await supabase
+    .from('sponsor_contact_requests')
+    .update({ status: 'read' })
+    .eq('id', id)
+    .select()
+    .single();
+  return { data, error };
+};
+
+export const deleteSponsorRequest = async (id) => {
+  const { data, error } = await supabase
+    .from('sponsor_contact_requests')
+    .delete()
+    .eq('id', id)
+    .select();
+  return { data, error };
+};
+
+// ============================================================
 // TOURNAMENT CRUD
 // ============================================================
 

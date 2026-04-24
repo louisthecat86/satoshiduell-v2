@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Background from '../components/ui/Background';
 import Button from '../components/ui/Button';
 import BracketTree from '../components/ui/BracketTree';
-import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, Swords, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Trophy, Users, Crown, RefreshCw, Trash2, Timer, Share2, Shield, Link2, Clock, XCircle, Swords, ChevronDown, ChevronUp, CheckCircle2, MessageSquare, X, Loader2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../hooks/useTranslation';
-import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, getTournamentImageUrl, fetchProfiles, generateBracketMatches, finalizeQualifying } from '../services/supabase';
+import { deleteTournament, fetchTournaments, fetchTournamentPrizes, fetchMyTournamentRegistrations, fetchBracketMatches, fetchTournamentById, finalizeTournamentIfReady, getTournamentImageUrl, fetchProfiles, generateBracketMatches, finalizeQualifying, submitSponsorRequest } from '../services/supabase';
 import { formatTime } from '../utils/formatters';
 import { getCryptoPunkAvatar } from '../utils/avatar';
 import { SocialIcon } from '../components/ui/SocialIcons';
@@ -24,6 +24,12 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [avatarMap, setAvatarMap] = useState({});
+
+  // Sponsor-Kontaktformular
+  const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
+  const [sponsorForm, setSponsorForm] = useState({ telegram: '', email: '', npub: '', twitter: '', message: '' });
+  const [sponsorSubmitting, setSponsorSubmitting] = useState(false);
+  const [sponsorSuccess, setSponsorSuccess] = useState(false);
 
   useEffect(() => { if (user?.username) refreshUser(user.username); }, []);
   useEffect(() => { setLocalCanCreate(user?.can_create_tournaments || false); }, [user?.can_create_tournaments]);
@@ -134,6 +140,21 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
 
   const handleDeleteTournament = async (id) => { await deleteTournament(id); setDeleteConfirm(null); setSelectedTournament(null); await loadData(); };
 
+  const handleSponsorSubmit = async () => {
+    const { telegram, email, npub, twitter } = sponsorForm;
+    if (!telegram && !email && !npub && !twitter) return;
+    setSponsorSubmitting(true);
+    const { error } = await submitSponsorRequest({
+      username: user?.username || 'unbekannt',
+      ...sponsorForm,
+    });
+    setSponsorSubmitting(false);
+    if (!error) {
+      setSponsorSuccess(true);
+      setSponsorForm({ telegram: '', email: '', npub: '', twitter: '', message: '' });
+    }
+  };
+
   // Bracket nach dem Spielen neu laden
   const handleStartTournamentWrapped = (tournament) => {
     if (onStartTournament) onStartTournament(tournament);
@@ -192,6 +213,75 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
                 <button onClick={() => handleDeleteTournament(deleteConfirm.id)} className="flex-1 px-4 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 flex items-center justify-center gap-2">
                   <Trash2 size={18} /> Löschen</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sponsor-Kontaktformular Modal */}
+      {sponsorModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
+          <div className="bg-[#111] border border-orange-500/20 rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#161616]">
+              <h2 className="text-white font-black text-base uppercase tracking-wider flex items-center gap-2">
+                <Trophy size={18} className="text-orange-500" /> Turnier sponsern
+              </h2>
+              <button onClick={() => { setSponsorModalOpen(false); setSponsorSuccess(false); }} className="text-neutral-500 hover:text-white">
+                <X size={22} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+              {sponsorSuccess ? (
+                <div className="text-center py-6">
+                  <CheckCircle2 size={48} className="text-green-400 mx-auto mb-3" />
+                  <p className="text-white font-black text-lg mb-2">Anfrage gesendet!</p>
+                  <p className="text-neutral-400 text-sm">Wolpertinger1 wird sich bei dir melden. Danke für dein Interesse! 🙏</p>
+                  <button onClick={() => { setSponsorModalOpen(false); setSponsorSuccess(false); }} className="mt-5 px-6 py-3 rounded-xl bg-orange-500 text-black font-black hover:bg-orange-400">Schließen</button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-neutral-400 text-xs leading-relaxed">
+                    Du möchtest ein Turnier auf SatoshiDuell sponsern? Hinterlasse hier deine Kontaktdaten — der Admin <span className="text-orange-400 font-bold">Wolpertinger1</span> meldet sich bei dir.
+                  </p>
+                  <p className="text-neutral-600 text-[11px]">Mindestens eine Kontaktmöglichkeit angeben.</p>
+
+                  {[
+                    { key: 'telegram', label: 'Telegram-Handle', placeholder: '@meinhandle' },
+                    { key: 'email',    label: 'E-Mail',          placeholder: 'name@beispiel.de' },
+                    { key: 'npub',     label: 'Nostr npub',      placeholder: 'npub1...' },
+                    { key: 'twitter',  label: 'Twitter / X',     placeholder: '@meinhandle' },
+                  ].map(({ key, label, placeholder }) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">{label}</label>
+                      <input
+                        type="text"
+                        placeholder={placeholder}
+                        value={sponsorForm[key]}
+                        onChange={e => setSponsorForm(prev => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full bg-[#1a1a1a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-orange-500/50"
+                      />
+                    </div>
+                  ))}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide">Nachricht (optional)</label>
+                    <textarea
+                      placeholder="Beschreibe kurz deine Idee..."
+                      value={sponsorForm.message}
+                      onChange={e => setSponsorForm(prev => ({ ...prev, message: e.target.value }))}
+                      rows={3}
+                      className="w-full bg-[#1a1a1a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none resize-none focus:border-orange-500/50"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSponsorSubmit}
+                    disabled={sponsorSubmitting || (!sponsorForm.telegram && !sponsorForm.email && !sponsorForm.npub && !sponsorForm.twitter)}
+                    className="w-full py-3 rounded-xl bg-orange-500 text-black font-black hover:bg-orange-400 disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {sponsorSubmitting ? <Loader2 size={18} className="animate-spin" /> : <MessageSquare size={18} />}
+                    Anfrage senden
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -676,6 +766,18 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
             <Crown className="text-white/80 mx-auto mb-2" size={32} /><p className="text-xs text-neutral-300 mb-3">Du bist berechtigt, Turniere zu erstellen</p>
             <Button onClick={onCreateTournament} className="w-full bg-white/10 hover:bg-white/20 text-white">Turnier erstellen</Button>
           </div></div>
+        )}
+        {!localCanCreate && (
+          <div className="px-4 mb-4">
+            <button
+              onClick={() => setSponsorModalOpen(true)}
+              className="w-full border border-orange-500/30 rounded-2xl p-4 text-center bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
+            >
+              <Trophy size={24} className="text-orange-400 mx-auto mb-2" />
+              <p className="text-sm font-black text-white mb-1">Turnier sponsern?</p>
+              <p className="text-[11px] text-neutral-400">Klicke hier, um Kontakt mit dem Admin aufzunehmen und ein eigenes Turnier zu erstellen</p>
+            </button>
+          </div>
         )}
         <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-4 scrollbar-hide">
           {loading && <div className="text-center text-neutral-500 text-sm py-10">Lade Turniere...</div>}
