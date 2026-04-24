@@ -5,7 +5,7 @@ import Background from '../components/ui/Background';
 import { getCryptoPunkAvatar } from '../utils/avatar';
 import { 
   Plus, Trophy, Users, Swords, PlayCircle, History, 
-  Medal, Heart, LogOut, Settings 
+  Medal, LogOut, Settings, Info, X
 } from 'lucide-react';
 import { supabase, fetchUserProfile, getOpenDuelCount, fetchUserGames, recalculateUserStats, fetchWinningTournamentsForUser, fetchTournaments, fetchMyTournamentRegistrations, fetchBracketMatches } from '../services/supabase';
 
@@ -41,6 +41,7 @@ const DashboardView = ({
   const [actionCount, setActionCount] = useState(0);   
   const [incomingChallenges, setIncomingChallenges] = useState([]); 
   const [showNewGameMenu, setShowNewGameMenu] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const [tournamentWinCount, setTournamentWinCount] = useState(0);
   const [hasOpenTournaments, setHasOpenTournaments] = useState(false);
   const [tournamentActionCount, setTournamentActionCount] = useState(0);
@@ -233,6 +234,56 @@ const DashboardView = ({
     </button>
   );
 
+  const infoModes = [
+    {
+      title: t('dashboard_info_mode_duel_title'),
+      description: t('dashboard_info_mode_duel_body'),
+      icon: Swords,
+      accent: 'text-orange-400',
+      border: 'border-orange-500/20',
+      bg: 'bg-orange-500/10',
+      iconBg: 'bg-orange-500/15',
+      iconBorder: 'border-orange-400/20'
+    },
+    {
+      title: t('dashboard_info_mode_arena_title'),
+      description: t('dashboard_info_mode_arena_body'),
+      icon: Users,
+      accent: 'text-yellow-300',
+      border: 'border-yellow-500/20',
+      bg: 'bg-yellow-500/10',
+      iconBg: 'bg-yellow-500/15',
+      iconBorder: 'border-yellow-400/20'
+    },
+    {
+      title: t('dashboard_info_mode_challenge_title'),
+      description: t('dashboard_info_mode_challenge_body'),
+      icon: PlayCircle,
+      accent: 'text-fuchsia-300',
+      border: 'border-fuchsia-500/20',
+      bg: 'bg-fuchsia-500/10',
+      iconBg: 'bg-fuchsia-500/15',
+      iconBorder: 'border-fuchsia-400/20'
+    },
+    {
+      title: t('dashboard_info_mode_tournament_title'),
+      description: t('dashboard_info_mode_tournament_body'),
+      icon: Trophy,
+      accent: 'text-cyan-300',
+      border: 'border-cyan-500/20',
+      bg: 'bg-cyan-500/10',
+      iconBg: 'bg-cyan-500/15',
+      iconBorder: 'border-cyan-400/20'
+    }
+  ];
+
+  const infoPrinciples = [
+    t('dashboard_info_principle_1'),
+    t('dashboard_info_principle_2'),
+    t('dashboard_info_principle_3'),
+    t('dashboard_info_principle_4')
+  ];
+
   return (
     <Background>
       <div className="flex flex-col h-full w-full max-w-md mx-auto relative p-4 overflow-y-auto pb-20 scrollbar-hide">
@@ -282,6 +333,58 @@ const DashboardView = ({
               <button onClick={onLogout} className="p-2 bg-white/5 rounded-lg text-neutral-400 hover:text-red-500 hover:bg-red-500/10 transition-colors">
                   <LogOut size={18}/>
               </button>
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden mb-4 rounded-[28px] border border-sky-400/15 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.24),_transparent_42%),linear-gradient(145deg,_rgba(17,24,39,0.96),_rgba(11,15,22,0.98))] shadow-[0_24px_70px_rgba(2,6,23,0.5)]">
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.08),transparent_35%,rgba(56,189,248,0.1))]" />
+          <div className="relative p-4">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-sky-200">
+                  <Info size={12} />
+                  {t('dashboard_info_badge')}
+                </div>
+                <h3 className="mt-3 text-white text-lg font-black uppercase tracking-[0.12em] leading-tight">
+                  {t('dashboard_info_title')}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-neutral-300">
+                  {t('dashboard_info_teaser')}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowInfoModal(true)}
+                className="shrink-0 rounded-2xl border border-white/10 bg-white/5 p-3 text-sky-200 transition-all hover:border-sky-300/30 hover:bg-white/10 hover:text-white"
+                aria-label={t('dashboard_info_button')}
+              >
+                <Info size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {infoModes.map((mode) => {
+                const Icon = mode.icon;
+                return (
+                <div key={mode.title} className={`rounded-2xl border ${mode.border} ${mode.bg} px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]`}>
+                  <div className="flex items-center gap-2">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-xl border ${mode.iconBorder} ${mode.iconBg}`}>
+                      <Icon size={16} className={mode.accent} />
+                    </div>
+                    <div className={`text-[10px] font-black uppercase tracking-[0.18em] ${mode.accent}`}>
+                      {mode.title}
+                    </div>
+                  </div>
+                </div>
+              )})}
+            </div>
+
+            <button
+              onClick={() => setShowInfoModal(true)}
+              className="w-full rounded-2xl bg-white text-[#111] py-3 text-xs font-black uppercase tracking-[0.22em] transition-all hover:bg-sky-100"
+            >
+              {t('dashboard_info_button')}
+            </button>
           </div>
         </div>
 
@@ -370,6 +473,96 @@ const DashboardView = ({
               >
                 {t('btn_cancel')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInfoModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-lg max-h-[85vh] overflow-hidden rounded-[30px] border border-white/10 bg-[#0f1116] shadow-[0_30px_100px_rgba(0,0,0,0.6)]">
+            <div className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_36%),linear-gradient(145deg,_rgba(17,24,39,0.98),_rgba(12,16,24,0.98))] px-5 py-5">
+              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.08),transparent_35%,rgba(56,189,248,0.1))]" />
+              <div className="relative flex items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-sky-200">
+                    <Info size={12} />
+                    {t('dashboard_info_badge')}
+                  </div>
+                  <h3 className="mt-3 text-xl font-black uppercase tracking-[0.12em] text-white">
+                    {t('dashboard_info_modal_title')}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-neutral-300">
+                    {t('dashboard_info_modal_subtitle')}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setShowInfoModal(false)}
+                  className="shrink-0 rounded-2xl border border-white/10 bg-white/5 p-2 text-neutral-400 transition-all hover:bg-white/10 hover:text-white"
+                  aria-label={t('btn_cancel')}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[calc(85vh-136px)] overflow-y-auto px-5 py-5 space-y-5">
+              <section className="rounded-3xl border border-orange-500/15 bg-orange-500/8 p-4">
+                <h4 className="text-sm font-black uppercase tracking-[0.18em] text-orange-300 mb-2">
+                  {t('dashboard_info_payment_title')}
+                </h4>
+                <p className="text-sm leading-6 text-neutral-200">
+                  {t('dashboard_info_payment_body')}
+                </p>
+              </section>
+
+              <section className="rounded-3xl border border-white/8 bg-white/[0.03] p-4">
+                <h4 className="text-sm font-black uppercase tracking-[0.18em] text-white mb-3">
+                  {t('dashboard_info_principle_title')}
+                </h4>
+                <div className="space-y-2">
+                  {infoPrinciples.map((item) => (
+                    <div key={item} className="flex items-start gap-3 rounded-2xl bg-black/20 px-3 py-3">
+                      <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.7)]" />
+                      <p className="text-sm leading-6 text-neutral-300">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h4 className="text-sm font-black uppercase tracking-[0.18em] text-white mb-3">
+                  {t('dashboard_info_modes_title')}
+                </h4>
+                <div className="space-y-3">
+                  {infoModes.map((mode) => {
+                    const Icon = mode.icon;
+                    return (
+                    <div key={mode.title} className={`rounded-3xl border ${mode.border} ${mode.bg} p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]`}>
+                      <div className="flex items-start gap-4">
+                        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${mode.iconBorder} ${mode.iconBg} shadow-[0_10px_30px_rgba(0,0,0,0.18)]`}>
+                          <Icon size={20} className={mode.accent} />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-black uppercase tracking-[0.18em] ${mode.accent} mb-2`}>
+                            {mode.title}
+                          </div>
+                          <p className="text-sm leading-6 text-neutral-200">
+                            {mode.description}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-emerald-500/15 bg-emerald-500/8 p-4">
+                <p className="text-sm leading-6 text-neutral-100">
+                  {t('dashboard_info_footer')}
+                </p>
+              </section>
             </div>
           </div>
         </div>
