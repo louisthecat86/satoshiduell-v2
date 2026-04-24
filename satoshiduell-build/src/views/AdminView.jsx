@@ -5,13 +5,13 @@ import { getCryptoPunkAvatar } from '../utils/avatar';
 import { 
   ArrowLeft, Upload, Download, Trash2, Loader2, RefreshCw, 
   Search, FileUp, Globe, X, Save, Check, LayoutDashboard, 
-  Gamepad2, ListChecks, Coins, Trophy, Clock, MessageSquare, Copy, CheckCheck
+  Gamepad2, ListChecks, Coins, Trophy, Clock, MessageSquare, Copy, CheckCheck, Archive, Inbox
 } from 'lucide-react';
 import { 
   fetchQuestions, upsertQuestions, deleteQuestion, deleteAllQuestions,
   fetchAllDuels, deleteDuel, fetchSubmissions, updateSubmissionStatus, deleteSubmission, supabase,
   updatePlayerCanCreateTournament, fetchPlayersForTournamentPermission,
-  fetchSponsorRequests, markSponsorRequestRead, deleteSponsorRequest
+  fetchSponsorRequests, markSponsorRequestRead, archiveSponsorRequest, deleteSponsorRequest
 } from '../services/supabase';
 import { useTranslation } from '../hooks/useTranslation';
 import { useAuth } from '../hooks/useAuth';
@@ -173,6 +173,8 @@ const AdminView = ({ onBack }) => {
   const [submissions, setSubmissions] = useState([]);
   const [tournamentCreators, setTournamentCreators] = useState([]);
   const [sponsorRequests, setSponsorRequests] = useState([]);
+  const [sponsorRequestsError, setSponsorRequestsError] = useState('');
+  const [showArchivedSponsorRequests, setShowArchivedSponsorRequests] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   
   // UI States
@@ -246,7 +248,14 @@ const AdminView = ({ onBack }) => {
 
   const loadSponsorRequests = async () => {
     setLoading(true);
-    const { data } = await fetchSponsorRequests();
+    setSponsorRequestsError('');
+    const { data, error } = await fetchSponsorRequests();
+    if (error) {
+      setSponsorRequestsError(error.message || 'Sponsor-Anfragen konnten nicht geladen werden.');
+      setSponsorRequests([]);
+      setLoading(false);
+      return;
+    }
     if (data) setSponsorRequests(data);
     setLoading(false);
   };
@@ -1026,90 +1035,131 @@ const AdminView = ({ onBack }) => {
               <h2 className="flex-1 text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <MessageSquare size={18} className="text-orange-400" /> Sponsor-Anfragen
               </h2>
+              <button
+                onClick={() => setShowArchivedSponsorRequests(v => !v)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${showArchivedSponsorRequests ? 'bg-blue-500/20 border-blue-500/40 text-blue-300' : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'}`}
+              >
+                {showArchivedSponsorRequests ? <Archive size={14} className="inline mr-1" /> : <Inbox size={14} className="inline mr-1" />}
+                {showArchivedSponsorRequests ? 'Archiv' : 'Posteingang'}
+              </button>
               <button onClick={() => { loadSponsorRequests(); loadStats(); }} className="p-3 bg-white/5 rounded-xl text-neutral-400 hover:text-white"><RefreshCw size={18}/></button>
             </div>
             <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
-              {loading ? (
-                <div className="flex items-center justify-center h-full"><Loader2 className="text-orange-500 animate-spin" size={32} /></div>
-              ) : sponsorRequests.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-16">
-                  <MessageSquare size={40} className="text-neutral-700" />
-                  <p className="text-neutral-500 text-sm">Keine Anfragen vorhanden</p>
-                </div>
-              ) : (
-                sponsorRequests.map(req => {
-                  const contacts = [
-                    { label: 'Telegram', value: req.telegram, icon: '📨' },
-                    { label: 'E-Mail',   value: req.email,    icon: '✉️' },
-                    { label: 'npub',     value: req.npub,     icon: '🔑' },
-                    { label: 'Twitter',  value: req.twitter,  icon: '🐦' },
-                  ].filter(c => c.value);
+              {(() => {
+                const visibleRequests = sponsorRequests.filter(req =>
+                  showArchivedSponsorRequests ? req.status === 'archived' : req.status !== 'archived'
+                );
 
-                  const handleCopy = async (text, id) => {
-                    await navigator.clipboard.writeText(text);
-                    setCopiedId(id);
-                    setTimeout(() => setCopiedId(null), 2000);
-                  };
+                return loading ? (
+                  <div className="flex items-center justify-center h-full"><Loader2 className="text-orange-500 animate-spin" size={32} /></div>
+                ) : sponsorRequestsError ? (
+                  <div className="rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                    {sponsorRequestsError}
+                  </div>
+                ) : visibleRequests.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-16">
+                    <MessageSquare size={40} className="text-neutral-700" />
+                    <p className="text-neutral-500 text-sm">{showArchivedSponsorRequests ? 'Keine archivierten Anfragen' : 'Keine Anfragen vorhanden'}</p>
+                  </div>
+                ) : (
+                  visibleRequests.map(req => {
+                    const contacts = [
+                      { label: 'Telegram', value: req.telegram, icon: '📨' },
+                      { label: 'E-Mail',   value: req.email,    icon: '✉️' },
+                      { label: 'npub',     value: req.npub,     icon: '🔑' },
+                      { label: 'Twitter',  value: req.twitter,  icon: '🐦' },
+                    ].filter(c => c.value);
 
-                  const handleRead = async () => {
-                    if (req.status === 'new') {
-                      await markSponsorRequestRead(req.id);
-                      setSponsorRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'read' } : r));
+                    const handleCopy = async (text, id) => {
+                      await navigator.clipboard.writeText(text);
+                      setCopiedId(id);
+                      setTimeout(() => setCopiedId(null), 2000);
+                    };
+
+                    const handleRead = async () => {
+                      if (req.status === 'new') {
+                        const { error } = await markSponsorRequestRead(req.id);
+                        if (!error) {
+                          setSponsorRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'read' } : r));
+                          loadStats();
+                        }
+                      }
+                    };
+
+                    const handleArchive = async () => {
+                      const { error } = await archiveSponsorRequest(req.id);
+                      if (error) {
+                        setSponsorRequestsError(error.message || 'Archivieren fehlgeschlagen.');
+                        return;
+                      }
+                      setSponsorRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'archived' } : r));
                       loadStats();
-                    }
-                  };
+                    };
 
-                  const handleDelete = async () => {
-                    await deleteSponsorRequest(req.id);
-                    setSponsorRequests(prev => prev.filter(r => r.id !== req.id));
-                    loadStats();
-                  };
+                    const handleDelete = async () => {
+                      const { error } = await deleteSponsorRequest(req.id);
+                      if (error) {
+                        setSponsorRequestsError(error.message || 'Loeschen fehlgeschlagen.');
+                        return;
+                      }
+                      setSponsorRequests(prev => prev.filter(r => r.id !== req.id));
+                      loadStats();
+                    };
 
-                  return (
-                    <div key={req.id} onClick={handleRead} className={`bg-black/40 border rounded-2xl p-4 transition-colors ${req.status === 'new' ? 'border-orange-500/40 bg-orange-500/5' : 'border-white/10'}`}>
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-white text-sm">{req.username}</span>
-                            {req.status === 'new' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/30 text-orange-400 border border-orange-500/50">NEU</span>}
-                          </div>
-                          <span className="text-[10px] text-neutral-600">{new Date(req.created_at).toLocaleString('de-DE')}</span>
-                        </div>
-                        <button onClick={e => { e.stopPropagation(); handleDelete(); }} className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 shrink-0">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-
-                      {/* Kontaktdaten mit Kopier-Buttons */}
-                      <div className="space-y-2 mb-3">
-                        {contacts.map(c => (
-                          <div key={c.label} className="flex items-center justify-between bg-white/5 rounded-xl px-3 py-2 gap-3">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-xs">{c.icon}</span>
-                              <span className="text-[10px] text-neutral-500 uppercase font-bold shrink-0">{c.label}</span>
-                              <span className="text-xs text-white font-mono truncate">{c.value}</span>
+                    return (
+                      <div key={req.id} onClick={handleRead} className={`bg-black/40 border rounded-2xl p-4 transition-colors ${req.status === 'new' ? 'border-orange-500/40 bg-orange-500/5' : 'border-white/10'}`}>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-white text-sm">{req.username}</span>
+                              {req.status === 'new' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/30 text-orange-400 border border-orange-500/50">NEU</span>}
+                              {req.status === 'read' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-300 border border-blue-500/40">GELESEN</span>}
+                              {req.status === 'archived' && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-neutral-500/30 text-neutral-300 border border-neutral-500/40">ARCHIV</span>}
                             </div>
-                            <button
-                              onClick={e => { e.stopPropagation(); handleCopy(c.value, `${req.id}-${c.label}`); }}
-                              className="shrink-0 p-1.5 rounded-lg bg-white/5 text-neutral-400 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
-                              title="Kopieren"
-                            >
-                              {copiedId === `${req.id}-${c.label}` ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
+                            <span className="text-[10px] text-neutral-600">{new Date(req.created_at).toLocaleString('de-DE')}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {req.status !== 'archived' && (
+                              <button onClick={e => { e.stopPropagation(); handleArchive(); }} className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20" title="Archivieren">
+                                <Archive size={14} />
+                              </button>
+                            )}
+                            <button onClick={e => { e.stopPropagation(); handleDelete(); }} className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20" title="Loeschen">
+                              <Trash2 size={14} />
                             </button>
                           </div>
-                        ))}
-                      </div>
-
-                      {req.message && (
-                        <div className="bg-white/5 rounded-xl px-3 py-2">
-                          <p className="text-[10px] text-neutral-500 uppercase font-bold mb-1">Nachricht</p>
-                          <p className="text-xs text-neutral-300">{req.message}</p>
                         </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+
+                        <div className="space-y-2 mb-3">
+                          {contacts.map(c => (
+                            <div key={c.label} className="flex items-center justify-between bg-white/5 rounded-xl px-3 py-2 gap-3">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-xs">{c.icon}</span>
+                                <span className="text-[10px] text-neutral-500 uppercase font-bold shrink-0">{c.label}</span>
+                                <span className="text-xs text-white font-mono truncate">{c.value}</span>
+                              </div>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleCopy(c.value, `${req.id}-${c.label}`); }}
+                                className="shrink-0 p-1.5 rounded-lg bg-white/5 text-neutral-400 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
+                                title="Kopieren"
+                              >
+                                {copiedId === `${req.id}-${c.label}` ? <CheckCheck size={14} className="text-green-400" /> : <Copy size={14} />}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        {req.message && (
+                          <div className="bg-white/5 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-neutral-500 uppercase font-bold mb-1">Nachricht</p>
+                            <p className="text-xs text-neutral-300">{req.message}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                );
+              })()}
             </div>
           </div>
         )}

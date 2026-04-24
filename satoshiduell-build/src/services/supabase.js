@@ -1231,6 +1231,16 @@ export const markSponsorRequestRead = async (id) => {
   return { data, error };
 };
 
+export const archiveSponsorRequest = async (id) => {
+  const { data, error } = await supabase
+    .from('sponsor_contact_requests')
+    .update({ status: 'archived' })
+    .eq('id', id)
+    .select()
+    .single();
+  return { data, error };
+};
+
 export const deleteSponsorRequest = async (id) => {
   const { data, error } = await supabase
     .from('sponsor_contact_requests')
