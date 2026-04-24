@@ -150,8 +150,9 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
     });
     setSponsorSubmitting(false);
     if (!error) {
-      setSponsorSuccess(true);
+      setSponsorModalOpen(false);
       setSponsorForm({ telegram: '', email: '', npub: '', twitter: '', message: '' });
+      setSponsorSuccess(true);
     }
   };
 
@@ -218,6 +219,36 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
         </div>
       )}
 
+      {/* Sponsor-Erfolgs-Overlay (eigenständig, nach Modal-Schließen) */}
+      {sponsorSuccess && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center z-[9999] p-6 animate-in fade-in zoom-in-95 duration-300">
+          <div className="flex flex-col items-center text-center max-w-xs">
+            <div className="w-24 h-24 rounded-full bg-green-500/20 border-2 border-green-500/50 flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(34,197,94,0.3)]">
+              <CheckCircle2 size={52} className="text-green-400" />
+            </div>
+            <h2 className="text-2xl font-black text-white mb-3 uppercase tracking-wide">Vielen Dank! 🙏</h2>
+            <p className="text-neutral-300 text-sm leading-relaxed mb-2">
+              Deine Anfrage wurde erfolgreich übermittelt.
+            </p>
+            <p className="text-neutral-400 text-sm leading-relaxed mb-8">
+              <span className="text-orange-400 font-bold">Wolpertinger1</span> wird sich zeitnah über deine angegebenen Kontaktdaten bei dir melden. Wir freuen uns auf die Zusammenarbeit!
+            </p>
+            <div className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 mb-6 text-left space-y-1">
+              <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Was passiert als nächstes?</p>
+              <p className="text-xs text-neutral-300">✓ Deine Anfrage ist beim Admin eingegangen</p>
+              <p className="text-xs text-neutral-300">✓ Du wirst über deine Plattform kontaktiert</p>
+              <p className="text-xs text-neutral-300">✓ Nach Freigabe kannst du Turniere erstellen</p>
+            </div>
+            <button
+              onClick={() => setSponsorSuccess(false)}
+              className="w-full py-4 rounded-2xl bg-orange-500 text-black font-black text-base hover:bg-orange-400 transition-colors"
+            >
+              Zurück zu den Turnieren
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sponsor-Kontaktformular Modal */}
       {sponsorModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
@@ -231,14 +262,7 @@ const TournamentsView = ({ onBack, onCreateTournament, onStartTournament, onOpen
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
-              {sponsorSuccess ? (
-                <div className="text-center py-6">
-                  <CheckCircle2 size={48} className="text-green-400 mx-auto mb-3" />
-                  <p className="text-white font-black text-lg mb-2">Anfrage gesendet!</p>
-                  <p className="text-neutral-400 text-sm">Wolpertinger1 wird sich bei dir melden. Danke für dein Interesse! 🙏</p>
-                  <button onClick={() => { setSponsorModalOpen(false); setSponsorSuccess(false); }} className="mt-5 px-6 py-3 rounded-xl bg-orange-500 text-black font-black hover:bg-orange-400">Schließen</button>
-                </div>
-              ) : (
+              {(
                 <>
                   <p className="text-neutral-400 text-xs leading-relaxed">
                     Du möchtest ein Turnier auf SatoshiDuell sponsern? Hinterlasse hier deine Kontaktdaten — der Admin <span className="text-orange-400 font-bold">Wolpertinger1</span> meldet sich bei dir.

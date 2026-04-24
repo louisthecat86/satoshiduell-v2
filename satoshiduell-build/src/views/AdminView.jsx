@@ -261,6 +261,14 @@ const AdminView = ({ onBack }) => {
       if (activeTab === 'sponsorRequests') loadSponsorRequests();
   }, [activeTab]);
 
+  // Sponsor-Stats alle 30 Sekunden automatisch aktualisieren
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadStats();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleBack = () => {
     if (activeTab !== 'dashboard') {
       setActiveTab('dashboard');
