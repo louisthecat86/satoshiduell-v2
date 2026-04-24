@@ -431,9 +431,11 @@ const DashboardView = ({
       )}
 
       {showInfoModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-white/10 bg-[#121212] shadow-[0_30px_100px_rgba(0,0,0,0.6)]">
-            <div className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(249,115,22,0.14),_transparent_40%),linear-gradient(145deg,_rgba(23,23,23,0.98),_rgba(15,15,15,0.98))] px-4 py-4">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-md flex flex-col rounded-[28px] border border-white/10 bg-[#121212] shadow-[0_30px_100px_rgba(0,0,0,0.6)]" style={{ maxHeight: 'calc(100dvh - 2rem)' }}>
+
+            {/* HEADER – fixiert, scrollt nicht mit */}
+            <div className="relative shrink-0 overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(249,115,22,0.14),_transparent_40%),linear-gradient(145deg,_rgba(23,23,23,0.98),_rgba(15,15,15,0.98))] px-4 py-4 rounded-t-[28px]">
               <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(249,115,22,0.06),transparent_35%,rgba(255,255,255,0.03))]" />
               <div className="relative flex items-start justify-between gap-4">
                 <div>
@@ -441,14 +443,10 @@ const DashboardView = ({
                     <Info size={12} />
                     {t('dashboard_info_badge')}
                   </div>
-                  <h3 className="mt-3 text-lg font-black uppercase tracking-[0.12em] text-white">
+                  <h3 className="mt-2 text-base font-black uppercase tracking-[0.12em] text-white">
                     {t('dashboard_info_modal_title')}
                   </h3>
-                  <p className="mt-2 text-xs leading-5 text-neutral-400 pr-4">
-                    {t('dashboard_info_modal_subtitle')}
-                  </p>
                 </div>
-
                 <button
                   onClick={() => setShowInfoModal(false)}
                   className="shrink-0 rounded-2xl border border-white/10 bg-white/5 p-2 text-neutral-400 transition-all hover:bg-white/10 hover:text-white"
@@ -459,7 +457,8 @@ const DashboardView = ({
               </div>
             </div>
 
-            <div className="px-4 py-4 space-y-4">
+            {/* SCROLLBARER INHALT */}
+            <div className="overflow-y-auto overscroll-contain px-4 py-4 space-y-3 flex-1 min-h-0">
               <section className="rounded-2xl border border-orange-500/15 bg-orange-500/[0.08] p-3">
                 <h4 className="text-[11px] font-black uppercase tracking-[0.18em] text-orange-300 mb-1.5">
                   {t('dashboard_info_payment_title')}
@@ -470,13 +469,13 @@ const DashboardView = ({
               </section>
 
               <section className="rounded-2xl border border-white/8 bg-white/[0.03] p-3">
-                <h4 className="text-[11px] font-black uppercase tracking-[0.18em] text-white mb-2.5">
+                <h4 className="text-[11px] font-black uppercase tracking-[0.18em] text-white mb-2">
                   {t('dashboard_info_principle_title')}
                 </h4>
-                <div className="grid grid-cols-1 gap-2">
+                <div className="space-y-1.5">
                   {infoPrinciples.map((item) => (
-                    <div key={item} className="flex items-start gap-2 rounded-xl bg-black/20 px-3 py-2.5">
-                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.45)]" />
+                    <div key={item} className="flex items-start gap-2 rounded-xl bg-black/20 px-3 py-2">
+                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.45)]" />
                       <p className="text-xs leading-5 text-neutral-300">{item}</p>
                     </div>
                   ))}
@@ -484,29 +483,30 @@ const DashboardView = ({
               </section>
 
               <section>
-                <h4 className="text-[11px] font-black uppercase tracking-[0.18em] text-white mb-2.5">
+                <h4 className="text-[11px] font-black uppercase tracking-[0.18em] text-white mb-2">
                   {t('dashboard_info_modes_title')}
                 </h4>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
                   {infoModes.map((mode) => {
                     const Icon = mode.icon;
                     return (
-                    <div key={mode.title} className={`rounded-2xl border ${mode.border} ${mode.bg} p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]`}>
-                      <div className="flex items-start gap-3">
-                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${mode.iconBorder} ${mode.iconBg}`}>
-                          <Icon size={18} className={mode.accent} />
-                        </div>
-                        <div>
-                          <div className={`text-[11px] font-black uppercase tracking-[0.16em] ${mode.accent} mb-1.5`}>
-                            {mode.title}
+                      <div key={mode.title} className={`rounded-2xl border ${mode.border} ${mode.bg} p-3`}>
+                        <div className="flex items-start gap-3">
+                          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${mode.iconBorder} ${mode.iconBg}`}>
+                            <Icon size={16} className={mode.accent} />
                           </div>
-                          <p className="text-[11px] leading-5 text-neutral-200">
-                            {mode.description}
-                          </p>
+                          <div>
+                            <div className={`text-[11px] font-black uppercase tracking-[0.16em] ${mode.accent} mb-1`}>
+                              {mode.title}
+                            </div>
+                            <p className="text-[11px] leading-5 text-neutral-200">
+                              {mode.description}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )})}
+                    );
+                  })}
                 </div>
               </section>
 
@@ -515,16 +515,26 @@ const DashboardView = ({
                   {t('dashboard_info_footer')}
                 </p>
               </section>
+            </div>
 
-              {infoModalFromNewGame && (
+            {/* FOOTER – fixiert, Aktions-Buttons */}
+            <div className="shrink-0 px-4 pb-4 pt-2 space-y-2">
+              {infoModalFromNewGame ? (
                 <button
                   onClick={() => { setShowInfoModal(false); setShowNewGameMenu(true); }}
-                  className="w-full rounded-2xl bg-orange-500 hover:bg-orange-400 text-black py-3 text-xs font-black uppercase tracking-[0.22em] transition-all"
+                  className="w-full rounded-2xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-black py-3 text-xs font-black uppercase tracking-[0.22em] transition-all"
                 >
                   {t('dashboard_info_continue')}
                 </button>
-              )}
+              ) : null}
+              <button
+                onClick={() => setShowInfoModal(false)}
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 py-3 text-xs font-black uppercase tracking-[0.22em] transition-all"
+              >
+                {t('back_home')}
+              </button>
             </div>
+
           </div>
         </div>
       )}
