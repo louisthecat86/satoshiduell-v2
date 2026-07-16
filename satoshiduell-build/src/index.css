@@ -10,9 +10,38 @@ body {
 }
 
 html, body, #root {
-  height: 100vh; /* Zwingt die App auf volle Bildschirmhöhe */
-  width: 100vw;
+  /* MOBILE-BROWSER-FIX:
+     100vh misst auf Mobilgeräten die Höhe INKLUSIVE des Bereichs hinter
+     der Browser-Leiste (Adressleiste/Toolbar). Folge: die unterste
+     Antwort im Spiel wurde von der Leiste verdeckt — und wegen
+     overflow:hidden konnte man auch nicht zu ihr scrollen.
+     100dvh (dynamic viewport height) passt sich der tatsächlich
+     sichtbaren Höhe an, auch wenn die Leiste ein-/ausblendet.
+     Die 100vh-Zeile davor bleibt als Fallback für sehr alte Browser —
+     wer dvh nicht kennt, ignoriert die zweite Zeile einfach.
+     In der installierten PWA (standalone, keine Browser-Leiste) sind
+     beide Werte identisch — dort ändert sich nichts. */
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
   overflow: hidden; /* Verhindert das Scrollen der ganzen Seite */
   margin: 0;
   padding: 0;
+}
+
+/* Der App-Container nutzt Tailwinds h-screen (= 100vh). Diese Regel
+   überschreibt das auf dvh — gleiche Spezifität, aber später geladen
+   als die Tailwind-Utilities, daher gewinnt sie. So muss im JSX
+   nichts geändert werden. */
+.app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Gleiche Korrektur für Views mit Tailwinds min-h-screen (Landing, Login,
+   NostrSetup): min-height 100vh wäre GRÖSSER als der dvh-Container und
+   würde in ihm unten abgeschnitten. */
+.min-h-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
 }
