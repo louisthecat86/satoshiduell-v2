@@ -210,8 +210,11 @@ const GameView = ({ gameData, onGameEnd }) => {
   }
 
   return (
-    <Background>
-      <div className="flex flex-col h-full w-full max-w-md mx-auto p-6">
+    // allowScroll: Sicherheitsnetz für kleine/verkleinerte Viewports —
+    // passt der Inhalt (Frage + 4 Antworten), scrollt nichts; passt er
+    // nicht, kann man zur letzten Antwort scrollen statt sie zu verlieren.
+    <Background allowScroll>
+      <div className="flex flex-col min-h-full w-full max-w-md mx-auto p-6 pb-8">
         
         {/* Header: Progress & Live Timer */}
         <div className="flex justify-between items-center mb-8">
